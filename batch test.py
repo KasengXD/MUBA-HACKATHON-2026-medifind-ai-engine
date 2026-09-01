@@ -32,17 +32,47 @@ except Exception as e:
     print(f"Error loading dataset: {e}")
     df = pd.DataFrame(columns=["Name", "Contains"])
 
+d# Place BRAND_ALIASES map right above findSubstitutes
+BRAND_ALIASES = {
+    "panadol": "paracetamol",
+    "tylenol": "paracetamol",
+    "advil": "ibuprofen",
+    "nurofen": "ibuprofen",
+    "lipitor": "atorvastatin",
+    "glucophage": "metformin",
+}
+
+
 def findSubstitutes(searchTerm, top_n=5):
+    raw_query = str(searchTerm or "").strip()
+    clean_query = raw_query.lower()
+
+    # 1. Alias translation for international brand names
+    if clean_query in BRAND_ALIASES:
+        clean_query = BRAND_ALIASES[clean_query]
+
+    # 2. Case-insensitive database match
     match = df[
-        df["Name"].str.contains(searchTerm, case=False, na=False) |
-        df["Contains"].str.contains(searchTerm, case=False, na=False)
+        df["Name"].str.contains(clean_query, case=False, na=False)
+        | df["Contains"].str.contains(clean_query, case=False, na=False)
     ]
     if match.empty:
         return None
-    
-    target = match.iloc[0]["Name"]
-    active = match.iloc[0]["Contains"]
-    subs = df[(df["Contains"] == active) & (df["Name"] != target)]["Name"].unique()
+
+    # 3. Sort: Prioritize oral tablets/capsules over injections/IVs
+    match = match.copy()
+    match["is_injection"] = match["Name"].str.contains(
+        "Injection|Infusion|IV", case=False, na=False
+    )
+    match["ingredient_count"] = match["Contains"].str.count(r"\+")
+    sorted_matches = match.sort_values(by=["is_injection", "ingredient_count"])
+
+    target = sorted_matches.iloc[0]["Name"]
+    active = sorted_matches.iloc[0]["Contains"]
+    subs = df[(df["Contains"] == active) & (df["Name"] != target)][
+        "Name"
+    ].unique()
+
     return {
         "searchQuery": searchTerm,
         "matchedMedicine": target,
@@ -50,7 +80,7 @@ def findSubstitutes(searchTerm, top_n=5):
         "substitutes": list(subs[:top_n]),
         "prescriptionRequired": True,
         "confidenceScore": 95 if len(subs) > 0 else 50,
-        "genericMatchFound": len(subs) > 0
+        "genericMatchFound": len(subs) > 0,
     }
 
 def runModelA(medName, active, subs):

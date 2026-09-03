@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 # Page Configuration
-st.set_page_config(page_title = "Tiba | Generic Medecine Engine", page_icon = "💊", layout = "wide")
+st.set_page_config(page_title = "MediFind | Generic Medecine Engine", page_icon = "💊", layout = "wide")
 
 # Load environment variables
 load_dotenv()

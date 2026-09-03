@@ -1,3 +1,4 @@
+
 import concurrent.futures
 import json
 import os
@@ -11,6 +12,7 @@ import pandas as pd
 load_dotenv()
 
 API_KEY = os.getenv("GONKA_API_KEY")
+
 
 if not API_KEY or not API_KEY.startswith("sk-"):
     raise ValueError(
@@ -250,9 +252,9 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"[{idx}/10] Error testing {med}: {e}\n")
 
-    print("Batch Test Summary:")
-    summary_df = pd.DataFrame(results)[
-        ["Search Query", "Stock Risk", "Safety", "Consensus Score", "Status"]
-    ]
-    print(summary_df.to_string(index=False))
-    print("\nBatch Test Complete")
+        print("Batch Test Summary:")
+        summary_df = pd.DataFrame(results)[
+            ["Search Query", "Stock Risk", "Safety", "Consensus Score", "Status"]
+        ]
+        print(summary_df.to_string(index=False))
+        print("\nBatch Test Complete")

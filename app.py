@@ -55,7 +55,7 @@ def findSubstitutes(searchTerm, top_n = 5):
 
     match = match.copy()
     match["is_injection"] = match["Name"].str.contains("Injection|Infusion|IV", case = False, na=False)
-    match["ingredient_count"] = match["contains"].str.count(r"\+")
+    match["ingredient_count"] = match["Contains"].str.count(r"\+")
     sorted_matches = match.sort_values(by = ["is_injection", "ingredient_count"])
 
     target = sorted_matches.iloc[0]["Name"]
@@ -155,70 +155,70 @@ if query:
                 active = lookup["activeIngredient"]
                 subs = lookup["substitutes"]
 
-# Concurrent Model Execution
-with concurrent.futures.ThreadPoolExecutor() as executor:
-    f_a = executor.submit(runModelA, client, medName, active, subs)
-    f_b = executor.submit(runModelB, client, medName, location)
-    dataA, errA = f_a.result()
-    dataB, errB = f_b.result()
+                # Concurrent Model Execution
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    f_a = executor.submit(runModelA, client, medName, active, subs)
+                    f_b = executor.submit(runModelB, client, medName, location)
+                    dataA, errA = f_a.result()
+                    dataB, errB = f_b.result()
 
-# Calculate Scores
-genericMatchPTS = 100 if lookup["denericMatchFound"] else 0
-stockScore = float(dataB.get("estimated_in_stock_confidence", 0))
-safetyScore = float(dataA.get("safety_score", 100 if dataA.get("safety_approved") else 0))
-consensusScore = (genericMatchPTS * 0.4) + (stockScore * 0.4) + (safetyScore * 0.2)
-st.markdown("---")
+                # Calculate Scores
+                genericMatchPTS = 100 if lookup["genericMatchFound"] else 0
+                stockScore = float(dataB.get("estimated_in_stock_confidence", 0))
+                safetyScore = float(dataA.get("safety_score", 100 if dataA.get("safety_approved") else 0))
+                consensusScore = (genericMatchPTS * 0.4) + (stockScore * 0.4) + (safetyScore * 0.2)
+                st.markdown("---")
 
-# Header Overview Metrics
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Matched Drug", medName)
-m2.metric("Generics Found", len(subs))
-m3.metric("Stock Risk Level", dataB.get("stock_risk", "N/A"))
-m4.metric("Consensus Score", f"{consensusScore:.1f}%")
+                # Header Overview Metrics
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Matched Drug", medName)
+                m2.metric("Generics Found", len(subs))
+                m3.metric("Stock Risk Level", dataB.get("stock_risk", "N/A"))
+                m4.metric("Consensus Score", f"{consensusScore:.1f}%")
 
-st.markdown("###🧪 Active Ingredients")
-st.info(f"**{active}**")
-col_left, col_right = st.columns(2)
+                st.markdown("###🧪 Active Ingredients")
+                st.info(f"**{active}**")
+                col_left, col_right = st.columns(2)
 
-# Clinical Safety Card (Model A)
-with col_left:
-    st.subheader("🛡️ Clinical Safety Evaluation (Kimi-K2.6)")
-    if dataA.get("safety_approved"):
-        st.success("✅ **Safety Status:** Approved Bio-Equivalent")
-    else:
-        st.warning("⚠️ **Safety Status:** Requires Pharmacist Review")
+                # Clinical Safety Card (Model A)
+                with col_left:
+                    st.subheader("🛡️ Clinical Safety Evaluation (Kimi-K2.6)")
+                    if dataA.get("safety_approved"):
+                        st.success("✅ **Safety Status:** Approved Bio-Equivalent")
+                    else:
+                        st.warning("⚠️ **Safety Status:** Requires Pharmacist Review")
 
-    st.write("**Dosage Instructions:**")
-    st.write(dataA.get("dosage_instructions", "N/A"))
-    st.write("**Key Clinical Warnings:**")
-    st.caption(dataA.get("key_warnings", "None reported."))
+                    st.write("**Dosage Instructions:**")
+                    st.write(dataA.get("dosage_instructions", "N/A"))
+                    st.write("**Key Clinical Warnings:**")
+                    st.caption(dataA.get("key_warnings", "None reported."))
 
-# Retail Supply Card (Model B)
-with col_right:
-    st.subhearder("🏪 Inventory & Store Mapping (DeepSeek-V4)")
-    st.write(f"**Location Filter:** {location}")
-    chains = dataB.get("nearest_chain_availability", [])
-    if chains:
-        st.write("**Available at Nearby Retailers:**")
-        for chain in chains:
-            st.markdown(f"- 🏢 {chain}")
-    else:
-        st.write("No specific retail chain data reported.")
-    st.progress(int(stockScore) / 100, text = f"Estimated Stock Availability: {stockScore:.0f}%")
+                # Retail Supply Card (Model B)
+                with col_right:
+                    st.subheader("🏪 Inventory & Store Mapping (DeepSeek-V4)")
+                    st.write(f"**Location Filter:** {location}")
+                    chains = dataB.get("nearest_chain_availability", [])
+                    if chains:
+                        st.write("**Available at Nearby Retailers:**")
+                        for chain in chains:
+                            st.markdown(f"- 🏢 {chain}")
+                    else:
+                        st.write("No specific retail chain data reported.")
+                    st.progress(int(stockScore) / 100, text = f"Estimated Stock Availability: {stockScore:.0f}%")
 
-# Generic Substitutes Table
-st.markdown("---")
-st.subheader("🔄 Verified Generic Substitutes")
-if subs:
-    sub_df = pd.DataFrame({
-        "Generic Brand Name": subs,
-        "Active Ingredient Match": [active] * len(subs),
-        "Form": ["Tablet / Capsule" if "Tablet" in s or "Capsule" in s else "Other" for s in subs],
-        "Status": ["Bio-Equivalent" for _ in subs]
-    })
-    st.dataframe(sub_df, use_container_width = True)
-else:
-    st.info("No lower-cost direct generic matches available in the local database.")
+                # Generic Substitutes Table
+                st.markdown("---")
+                st.subheader("🔄 Verified Generic Substitutes")
+                if subs:
+                    sub_df = pd.DataFrame({
+                        "Generic Brand Name": subs,
+                        "Active Ingredient Match": [active] * len(subs),
+                        "Form": ["Tablet / Capsule" if "Tablet" in s or "Capsule" in s else "Other" for s in subs],
+                        "Status": ["Bio-Equivalent" for _ in subs]
+                    })
+                    st.dataframe(sub_df, use_container_width = True)
+                else:
+                    st.info("No lower-cost direct generic matches available in the local database.")
 
 
 

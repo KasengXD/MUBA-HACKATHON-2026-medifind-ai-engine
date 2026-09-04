@@ -64,6 +64,52 @@ def reverse_geocode(lat, lng):
         return f"{lat:.4f}, {lng:.4f}"
 
 
+# Preset State & City directory
+STATE_CITY_MAP = {
+    "Selangor": [
+        "Petaling Jaya",
+        "Shah Alam",
+        "Subang Jaya",
+        "Klang",
+        "Puchong",
+        "Cyberjaya",
+        "Kajang",
+        "Ampang",
+    ],
+    "Kuala Lumpur": [
+        "Kuala Lumpur City Centre",
+        "Bangsar",
+        "Cheras",
+        "Bukit Bintang",
+        "Kepong",
+        "Setapak",
+        "Mont Kiara",
+    ],
+    "Penang": [
+        "George Town",
+        "Bayan Lepas",
+        "Seberang Perai",
+        "Butterworth",
+        "Ayer Itam",
+    ],
+    "Johor": [
+        "Johor Bahru",
+        "Iskandar Puteri",
+        "Batu Pahat",
+        "Muar",
+        "Kluang",
+        "Kulai",
+    ],
+    "Perak": ["Ipoh", "Taiping", "Teluk Intan", "Manjung", "Kampar"],
+    "Sabah": ["Kota Kinabalu", "Sandakan", "Tawau"],
+    "Sarawak": ["Kuching", "Miri", "Sibu", "Bintulu"],
+    "Melaka": ["Melaka City", "Ayer Keroh", "Alor Gajah"],
+    "Negeri Sembilan": ["Seremban", "Port Dickson", "Nilai"],
+    "Kedah": ["Alor Setar", "Sungai Petani", "Langkawi", "Kulim"],
+    "Pahang": ["Kuantan", "Temerloh", "Bentong", "Cameron Highlands"],
+}
+
+
 # 2. Sidebar Controls & Safe Dataset Loader
 st.sidebar.title("⚙️ Engine Controls")
 
@@ -100,35 +146,60 @@ def load_data(path):
 
 df = load_data(target_path)
 
-# --- Interactive Location Selection ---
+# --- Location Selection Module ---
 st.sidebar.markdown("### 📍 Location Selection")
 loc_mode = st.sidebar.radio(
     "Location Selection Mode",
-    ["📌 Interactive Map Pin", "⌨️ Manual Text Input"],
+    [
+        "🏙️ Select State & City",
+        "📌 Interactive Map Pin",
+        "⌨️ Manual Free Text",
+    ],
     index=0,
 )
 
-if loc_mode == "📌 Interactive Map Pin":
+if loc_mode == "🏙️ Select State & City":
+    selected_state = st.sidebar.selectbox(
+        "🏛️ Select State",
+        options=list(STATE_CITY_MAP.keys()) + ["Other / Custom State"],
+    )
+
+    if selected_state == "Other / Custom State":
+        custom_city = st.sidebar.text_input("City", value="Petaling Jaya")
+        custom_state = st.sidebar.text_input("State", value="Selangor")
+        location = f"{custom_city.strip()}, {custom_state.strip()}".strip(", ")
+    else:
+        city_options = STATE_CITY_MAP.get(selected_state, []) + ["Other / Custom City"]
+        selected_city = st.sidebar.selectbox("🌆 Select City", options=city_options)
+
+        if selected_city == "Other / Custom City":
+            custom_city = st.sidebar.text_input("Enter City Name", value="")
+            location = (
+                f"{custom_city.strip()}, {selected_state}"
+                if custom_city.strip()
+                else selected_state
+            )
+        else:
+            location = f"{selected_city}, {selected_state}"
+
+elif loc_mode == "📌 Interactive Map Pin":
     st.sidebar.caption("Click anywhere on the map to pin your location:")
-    
-    # Default map centered at Petaling Jaya, Selangor (3.1073, 101.6067)
     default_lat, default_lng = 3.1073, 101.6067
-    
     m = folium.Map(location=[default_lat, default_lng], zoom_start=11)
     
-    # Render interactive map component in sidebar
     map_out = st_folium(m, height=220, key="sidebar_map", use_container_width=True)
-    
+
     if map_out and map_out.get("last_clicked"):
         clicked_lat = map_out["last_clicked"]["lat"]
         clicked_lng = map_out["last_clicked"]["lng"]
         location = reverse_geocode(clicked_lat, clicked_lng)
     else:
         location = "Petaling Jaya, Selangor"
-    
-    st.sidebar.info(f"**Pinned:** {location}")
+
 else:
     location = st.sidebar.text_input("📍 Your Location", value="Petaling Jaya, Selangor")
+
+st.sidebar.info(f"**Target Location:** {location}")
 
 user_api_key = st.sidebar.text_input(
     "🔑 Gonka API Key",

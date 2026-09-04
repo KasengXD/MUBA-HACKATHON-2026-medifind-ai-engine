@@ -153,7 +153,7 @@ def runModelA(client, medName, active, subs):
                 {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
-            max_tokens=1024,
+            max_tokens=512,
         )
         raw_text = resA.choices[0].message.content.strip()
         json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
@@ -186,7 +186,7 @@ def runModelB(client, medName, location):
                 {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
-            max_tokens=1024,
+            max_tokens=512,
         )
         raw_text = resB.choices[0].message.content.strip()
         json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
@@ -239,7 +239,7 @@ if query:
         client = OpenAI(
             api_key=active_api_key,
             base_url=BASE_URL,
-            timeout=30.0,
+            timeout=45.0,
             max_retries=2,
         )
 

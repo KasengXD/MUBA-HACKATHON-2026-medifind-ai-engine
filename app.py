@@ -139,35 +139,38 @@ def findSubstitutes(searchTerm, top_n=5):
 def runModelA(client, medName, active, subs):
     system_prompt = (
         "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
-        "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON containing: "
-        '1) "safety_approved" (boolean), 2) "safety_score" (0-100), 3) "dosage_instructions" (string), and 4) "key_warnings" (string).'
+        "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON: "
+        '{"safety_approved": boolean, "safety_score": 0-100, "dosage_instructions": "string", "key_warnings": "string"}'
     )
     user_prompt = f"Medicine: {medName}\nActive: {active}\nSubs: {subs}\n"
 
-    try:
-        model_name = get_secret("MODEL_SAFETY", "moonshotai/Kimi-K2.6")
-        resA = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=512,
-        )
-        raw_text = resA.choices[0].message.content.strip()
-        json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-        if json_match:
-            raw_text = json_match.group(0)
-        return json.loads(raw_text, strict=False), None
-    except Exception as e:
-        return {
-            "safety_approved": False,
-            "safety_score": 0,
-            "dosage_instructions": "Consult a healthcare provider.",
-            "key_warnings": f"Error loading clinical safety profile: {e}",
-        }, str(e)
+    # Try primary safety model first, fall back to DeepSeek-Flash if it times out
+    primary_model = get_secret("MODEL_SAFETY", "moonshotai/Kimi-K2.6")
+    fallback_model = "deepseek-ai/DeepSeek-V4-Flash-0731"
 
+    for model_name in [primary_model, fallback_model]:
+        try:
+            resA = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=512,
+            )
+            raw_text = resA.choices[0].message.content.strip()
+            json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group(0), strict=False), None
+        except Exception as e:
+            if model_name == fallback_model:
+                return {
+                    "safety_approved": False,
+                    "safety_score": 0,
+                    "dosage_instructions": "Consult a healthcare provider.",
+                    "key_warnings": f"Error loading clinical safety profile: {e}",
+                }, str(e)
+                
 def runModelB(client, medName, location):
     system_prompt = (
         f"You are a retail pharmaceutical inventory AI. Analyze stock risk and store availability for {medName} in {location}. "

@@ -18,6 +18,7 @@ st.set_page_config(
 # Load environment variables
 load_dotenv()
 
+
 # Safe secret reader for both Cloud and Local execution
 def get_secret(key, default=""):
     try:
@@ -27,8 +28,10 @@ def get_secret(key, default=""):
         pass
     return os.getenv(key, default)
 
+
 API_KEY = get_secret("GONKA_API_KEY", "")
 BASE_URL = get_secret("GONKA_BASE_URL", "https://api.gonkarouter.io/v1")
+
 
 # Helper function for safe numeric casting from LLM outputs
 def safe_float(val, default=0.0):
@@ -39,6 +42,7 @@ def safe_float(val, default=0.0):
         return float(clean_val)
     except (ValueError, TypeError):
         return default
+
 
 # 2. Sidebar Controls & Safe Dataset Loader
 st.sidebar.title("⚙️ Engine Controls")
@@ -54,6 +58,7 @@ target_path = (
     if "Sample" in dataset_scale
     else "cleaned_medicines_final.csv.gz"
 )
+
 
 @st.cache_data
 def load_data(path):
@@ -71,6 +76,7 @@ def load_data(path):
     except Exception as e:
         st.error(f"Error loading dataset: {e}")
         return pd.DataFrame(columns=["Name", "Contains"])
+
 
 df = load_data(target_path)
 
@@ -99,6 +105,7 @@ BRAND_ALIASES = {
     "lipitor": "atorvastatin",
     "glucophage": "metformin",
 }
+
 
 # 3. Core Engine Functions
 def findSubstitutes(searchTerm, top_n=5):
@@ -136,6 +143,7 @@ def findSubstitutes(searchTerm, top_n=5):
         "genericMatchFound": len(subs) > 0,
     }
 
+
 def runModelA(client, medName, active, subs):
     system_prompt = (
         "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
@@ -150,15 +158,22 @@ def runModelA(client, medName, active, subs):
 
     for model_name in [primary_model, fallback_model]:
         try:
+            # Step 3: Enable Native JSON Mode for DeepSeek
             resA = client.chat.completions.create(
                 model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                response_format={"type": "json_object"} if "DeepSeek" in model_name else None,
                 max_tokens=512,
             )
             raw_text = resA.choices[0].message.content or ""
+            
+            # Step 2: Clean Markdown Backticks in Model Runners
+            raw_text = re.sub(r"```json\s*", "", raw_text)
+            raw_text = re.sub(r"```\s*", "", raw_text).strip()
+
             json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
 
             if json_match:
@@ -192,15 +207,22 @@ def runModelB(client, medName, location):
     model_name = get_secret("MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731")
 
     try:
+        # Step 3: Enable Native JSON Mode for DeepSeek
         resB = client.chat.completions.create(
             model=model_name,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            response_format={"type": "json_object"} if "DeepSeek" in model_name else None,
             max_tokens=512,
         )
         raw_text = resB.choices[0].message.content or ""
+        
+        # Step 2: Clean Markdown Backticks in Model Runners
+        raw_text = re.sub(r"```json\s*", "", raw_text)
+        raw_text = re.sub(r"```\s*", "", raw_text).strip()
+
         json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
         if json_match:
             parsed = json.loads(json_match.group(0), strict=False)
@@ -219,6 +241,7 @@ def runModelB(client, medName, location):
         "nearest_chain_availability": ["Local Pharmacy"],
         "estimated_in_stock_confidence": 0,
     }, "Model failed to return structured JSON."
+
 
 # 4. Main UI Layout
 st.title("💊 MediFind: Medicine Search & Generic Engine")
@@ -251,7 +274,12 @@ else:
     )
 
 if query:
-    if not active_api_key:
+    clean_q = query.strip()
+    
+    # Step 1: Enforce Minimum Search Length
+    if len(clean_q) < 3 and search_mode == "⌨️ Free Text Search":
+        st.warning("⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox').")
+    elif not active_api_key:
         st.error(
             "Please provide a valid Gonka API Key in Streamlit Cloud Secrets or the sidebar."
         )
@@ -264,11 +292,11 @@ if query:
         )
 
         with st.spinner("Searching database and executing dual-AI routing..."):
-            lookup = findSubstitutes(query)
+            lookup = findSubstitutes(clean_q)
 
             if not lookup:
                 st.warning(
-                    f"No match found in dataset for **'{query}'**. Try searching by active ingredient."
+                    f"No match found in dataset for **'{clean_q}'**. Try searching by active ingredient."
                 )
             else:
                 medName = lookup["matchedMedicine"]
@@ -284,14 +312,26 @@ if query:
                     dataB, errB = f_b.result()
 
                 genericMatchPTS = 100 if lookup["genericMatchFound"] else 0
-                
+
                 # Safely parse numeric responses from LLM outputs
-                stock_raw = dataB.get("estimated_in_stock_confidence") if isinstance(dataB, dict) else 0
+                stock_raw = (
+                    dataB.get("estimated_in_stock_confidence")
+                    if isinstance(dataB, dict)
+                    else 0
+                )
                 stockScore = safe_float(stock_raw, 0.0)
 
-                safety_approved = dataA.get("safety_approved") if isinstance(dataA, dict) else False
+                safety_approved = (
+                    dataA.get("safety_approved")
+                    if isinstance(dataA, dict)
+                    else False
+                )
                 safety_default = 100.0 if safety_approved else 0.0
-                safety_raw = dataA.get("safety_score") if isinstance(dataA, dict) else None
+                safety_raw = (
+                    dataA.get("safety_score")
+                    if isinstance(dataA, dict)
+                    else None
+                )
                 safetyScore = safe_float(safety_raw, safety_default)
 
                 consensusScore = (
@@ -310,7 +350,14 @@ if query:
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Matched Drug", medName)
                 m2.metric("Generics Found", len(subs))
-                m3.metric("Stock Risk Level", dataB.get("stock_risk", "N/A") if isinstance(dataB, dict) else "N/A")
+                m3.metric(
+                    "Stock Risk Level",
+                    (
+                        dataB.get("stock_risk", "N/A")
+                        if isinstance(dataB, dict)
+                        else "N/A"
+                    ),
+                )
                 m4.metric("Consensus Score", f"{consensusScore:.1f}%")
 
                 st.markdown("### 🧪 Active Ingredients")
@@ -320,7 +367,11 @@ if query:
 
                 with col_left:
                     st.subheader("🛡️ Clinical Safety Evaluation (Kimi-K2.6)")
-                    if dataA.get("safety_approved") if isinstance(dataA, dict) else False:
+                    if (
+                        dataA.get("safety_approved")
+                        if isinstance(dataA, dict)
+                        else False
+                    ):
                         st.success("✅ **Safety Status:** Approved Bio-Equivalent")
                     else:
                         st.warning(
@@ -328,14 +379,22 @@ if query:
                         )
 
                     st.markdown("**Dosage Instructions:**")
-                    st.write(dataA.get("dosage_instructions", "N/A") if isinstance(dataA, dict) else "N/A")
+                    st.write(
+                        dataA.get("dosage_instructions", "N/A")
+                        if isinstance(dataA, dict)
+                        else "N/A"
+                    )
 
                     st.markdown("**Key Clinical Warnings:**")
-                    st.caption(dataA.get("key_warnings", "None reported.") if isinstance(dataA, dict) else "None reported.")
+                    st.caption(
+                        dataA.get("key_warnings", "None reported.")
+                        if isinstance(dataA, dict)
+                        else "None reported."
+                    )
 
                     brief_text = f"""TIBA CLINICAL SAFETY BRIEF
 ----------------------------------------
-Drug Queried: {query}
+Drug Queried: {clean_q}
 Matched Drug: {medName}
 Active Ingredient: {active}
 Safety Status: {'APPROVED' if (isinstance(dataA, dict) and dataA.get('safety_approved')) else 'REQUIRES REVIEW'}
@@ -362,7 +421,11 @@ Generated by Tiba AI Engine via Gonka Router
                     )
                     st.write(f"**Location Filter:** {location}")
 
-                    chains = dataB.get("nearest_chain_availability", []) if isinstance(dataB, dict) else []
+                    chains = (
+                        dataB.get("nearest_chain_availability", [])
+                        if isinstance(dataB, dict)
+                        else []
+                    )
                     if chains:
                         st.write("**Available at Nearby Retailers:**")
                         for chain in chains:

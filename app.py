@@ -53,7 +53,7 @@ user_api_key = st.sidebar.text_input(
     "🔑 Gonka API Key",
     value=API_KEY if API_KEY else "",
     type="password",
-    help="Provided via .env or entered manually here.",
+    help="Provide valid Gonka API Key start with sk-",
 )
 
 st.sidebar.markdown("---")

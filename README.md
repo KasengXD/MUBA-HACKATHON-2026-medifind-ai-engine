@@ -96,7 +96,7 @@ cd MUBA-HACKATHON-2026-medifind-ai-engine
 
 ```
 
-### 2. Install Dependencies
+### Install Dependencies
 
 ```bash
 python -m venv venv
@@ -105,7 +105,7 @@ pip install -r requirements.txt
 
 ```
 
-### 3. Configure Environment Variables
+### Configure Environment Variables
 
 Create a `.env` file in the project root:
 

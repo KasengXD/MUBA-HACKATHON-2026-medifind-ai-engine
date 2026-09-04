@@ -184,17 +184,51 @@ if loc_mode == "🏙️ Select State & City":
 
 elif loc_mode == "📌 Interactive Map Pin":
     st.sidebar.caption("Click anywhere on the map to pin your location:")
-    default_lat, default_lng = 3.1073, 101.6067
-    m = folium.Map(location=[default_lat, default_lng], zoom_start=11)
-    
-    map_out = st_folium(m, height=220, key="sidebar_map", use_container_width=True)
 
+    # Initialize pinned location in session state
+    if "map_lat" not in st.session_state:
+        st.session_state["map_lat"] = 3.1073
+        st.session_state["map_lng"] = 101.6067
+
+    # Create Folium Map with center on current coordinates
+    m = folium.Map(
+        location=[st.session_state["map_lat"], st.session_state["map_lng"]],
+        zoom_start=11,
+    )
+
+    # Add active pin marker on the map
+    folium.Marker(
+        [st.session_state["map_lat"], st.session_state["map_lng"]],
+        popup="Pinned Location",
+        tooltip="Selected Location",
+        icon=folium.Icon(color="red", icon="info-sign"),
+    ).add_to(m)
+
+    # Render map component
+    map_out = st_folium(
+        m,
+        height=220,
+        key="sidebar_map",
+        use_container_width=True,
+        returned_objects=["last_clicked"],
+    )
+
+    # Update state and rerun if a new pin point is clicked
     if map_out and map_out.get("last_clicked"):
         clicked_lat = map_out["last_clicked"]["lat"]
         clicked_lng = map_out["last_clicked"]["lng"]
-        location = reverse_geocode(clicked_lat, clicked_lng)
-    else:
-        location = "Petaling Jaya, Selangor"
+
+        if (
+            abs(clicked_lat - st.session_state["map_lat"]) > 1e-5
+            or abs(clicked_lng - st.session_state["map_lng"]) > 1e-5
+        ):
+            st.session_state["map_lat"] = clicked_lat
+            st.session_state["map_lng"] = clicked_lng
+            st.rerun()
+
+    location = reverse_geocode(
+        st.session_state["map_lat"], st.session_state["map_lng"]
+    )
 
 else:
     location = st.sidebar.text_input("📍 Your Location", value="Petaling Jaya, Selangor")

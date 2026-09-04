@@ -239,8 +239,8 @@ if query:
         client = OpenAI(
             api_key=active_api_key,
             base_url=BASE_URL,
-            timeout=12.0,
-            max_retries=1,
+            timeout=30.0,
+            max_retries=2,
         )
 
         with st.spinner("Searching database and executing dual-AI routing..."):

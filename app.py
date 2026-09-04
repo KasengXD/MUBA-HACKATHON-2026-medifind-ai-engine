@@ -140,13 +140,13 @@ def runModelA(client, medName, active, subs):
     system_prompt = (
         "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
         "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON: "
-        '{"safety_approved": boolean, "safety_score": 0-100, "dosage_instructions": "string", "key_warnings": "string"}'
+        '{"safety_approved": true, "safety_score": 90, "dosage_instructions": "...", "key_warnings": "..."}'
     )
     user_prompt = f"Medicine: {medName}\nActive: {active}\nSubs: {subs}\n"
 
-    # Try primary safety model first, fall back to DeepSeek-Flash if it times out
     primary_model = get_secret("MODEL_SAFETY", "moonshotai/Kimi-K2.6")
     fallback_model = "deepseek-ai/DeepSeek-V4-Flash-0731"
+    last_error = "Unknown execution error"
 
     for model_name in [primary_model, fallback_model]:
         try:
@@ -158,19 +158,28 @@ def runModelA(client, medName, active, subs):
                 ],
                 max_tokens=512,
             )
-            raw_text = resA.choices[0].message.content.strip()
+            raw_text = resA.choices[0].message.content or ""
             json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+
             if json_match:
-                return json.loads(json_match.group(0), strict=False), None
+                parsed = json.loads(json_match.group(0), strict=False)
+                if isinstance(parsed, dict):
+                    return parsed, None
+                last_error = f"{model_name} returned non-dictionary JSON."
+            else:
+                last_error = f"{model_name} output missing valid JSON format."
         except Exception as e:
-            if model_name == fallback_model:
-                return {
-                    "safety_approved": False,
-                    "safety_score": 0,
-                    "dosage_instructions": "Consult a healthcare provider.",
-                    "key_warnings": f"Error loading clinical safety profile: {e}",
-                }, str(e)
-                
+            last_error = str(e)
+
+    # Guaranteed tuple return if all models fail
+    return {
+        "safety_approved": False,
+        "safety_score": 0,
+        "dosage_instructions": "Consult a healthcare provider.",
+        "key_warnings": f"Error loading clinical safety profile: {last_error}",
+    }, last_error
+
+
 def runModelB(client, medName, location):
     system_prompt = (
         f"You are a retail pharmaceutical inventory AI. Analyze stock risk and store availability for {medName} in {location}. "
@@ -180,28 +189,36 @@ def runModelB(client, medName, location):
     )
     user_prompt = f"Assess current market stock and store availability for {medName} in {location}."
 
+    model_name = get_secret("MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731")
+
     try:
-        model_name = get_secret("MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731")
         resB = client.chat.completions.create(
             model=model_name,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            response_format={"type": "json_object"},
             max_tokens=512,
         )
-        raw_text = resB.choices[0].message.content.strip()
+        raw_text = resB.choices[0].message.content or ""
         json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
         if json_match:
-            raw_text = json_match.group(0)
-        return json.loads(raw_text, strict=False), None
+            parsed = json.loads(json_match.group(0), strict=False)
+            if isinstance(parsed, dict):
+                return parsed, None
     except Exception as e:
         return {
             "stock_risk": "Unknown",
             "nearest_chain_availability": ["Local Pharmacy"],
             "estimated_in_stock_confidence": 0,
         }, str(e)
+
+    # Guaranteed tuple return if model fails
+    return {
+        "stock_risk": "Unknown",
+        "nearest_chain_availability": ["Local Pharmacy"],
+        "estimated_in_stock_confidence": 0,
+    }, "Model failed to return structured JSON."
 
 # 4. Main UI Layout
 st.title("💊 MediFind: Medicine Search & Generic Engine")

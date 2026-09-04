@@ -10,7 +10,7 @@ import streamlit as st
 
 # 1. Page Configuration
 st.set_page_config(
-    page_title="Tiba | Generic Medicine Engine",
+    page_title="MediFind | Generic Medicine Engine",
     page_icon="💊",
     layout="wide",
 )

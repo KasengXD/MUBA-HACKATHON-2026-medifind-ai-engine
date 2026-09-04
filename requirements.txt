@@ -1,4 +1,7 @@
-pandas
-openai
-python-dotenv
 streamlit
+openai
+pandas
+python-dotenv
+folium
+streamlit-folium
+geopy

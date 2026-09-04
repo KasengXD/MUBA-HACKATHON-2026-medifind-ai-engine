@@ -1,7 +1,8 @@
 streamlit
-openai
 pandas
+openai
 python-dotenv
+rapidfuzz
 folium
 streamlit-folium
 geopy

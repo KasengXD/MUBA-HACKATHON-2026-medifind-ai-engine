@@ -158,7 +158,6 @@ def runModelA(client, medName, active, subs):
 
     for model_name in [primary_model, fallback_model]:
         try:
-            # Step 3: Enable Native JSON Mode for DeepSeek
             resA = client.chat.completions.create(
                 model=model_name,
                 messages=[
@@ -170,7 +169,6 @@ def runModelA(client, medName, active, subs):
             )
             raw_text = resA.choices[0].message.content or ""
             
-            # Step 2: Clean Markdown Backticks in Model Runners
             raw_text = re.sub(r"```json\s*", "", raw_text)
             raw_text = re.sub(r"```\s*", "", raw_text).strip()
 
@@ -186,7 +184,6 @@ def runModelA(client, medName, active, subs):
         except Exception as e:
             last_error = str(e)
 
-    # Guaranteed tuple return if all models fail
     return {
         "safety_approved": False,
         "safety_score": 0,
@@ -207,7 +204,6 @@ def runModelB(client, medName, location):
     model_name = get_secret("MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731")
 
     try:
-        # Step 3: Enable Native JSON Mode for DeepSeek
         resB = client.chat.completions.create(
             model=model_name,
             messages=[
@@ -219,7 +215,6 @@ def runModelB(client, medName, location):
         )
         raw_text = resB.choices[0].message.content or ""
         
-        # Step 2: Clean Markdown Backticks in Model Runners
         raw_text = re.sub(r"```json\s*", "", raw_text)
         raw_text = re.sub(r"```\s*", "", raw_text).strip()
 
@@ -235,7 +230,6 @@ def runModelB(client, medName, location):
             "estimated_in_stock_confidence": 0,
         }, str(e)
 
-    # Guaranteed tuple return if model fails
     return {
         "stock_risk": "Unknown",
         "nearest_chain_availability": ["Local Pharmacy"],
@@ -247,152 +241,155 @@ def runModelB(client, medName, location):
 st.title("💊 MediFind: Medicine Search & Generic Engine")
 st.caption("Powered by Gonka Router Dual-Model AI Orchestration")
 
-search_mode = st.radio(
-    "Search Mode",
-    ["⚡ Quick Select (Preset Demo)", "⌨️ Free Text Search"],
-    horizontal=True,
-)
+# Main Navigation Tabs
+tab_search, tab_library = st.tabs(["🔍 Search & Evaluation", "📚 Medicine Reference Library"])
 
-if search_mode == "⚡ Quick Select (Preset Demo)":
-    popular_meds = [
-        "Metformin",
-        "Augmentin",
-        "Paracetamol",
-        "Amoxicillin",
-        "Pantoprazole",
-        "Atorvastatin",
-        "Azithromycin",
-        "Cetirizine",
-        "Omeprazole",
-        "Ibuprofen",
-    ]
-    query = st.selectbox("Select a medicine query:", [""] + popular_meds)
-else:
-    query = st.text_input(
-        "🔍 Search Brand or Active Ingredient",
-        placeholder="e.g. Panadol, Augmentin, Metformin, Amoxicillin",
+# ================= TAB 1: SEARCH & EVALUATION =================
+with tab_search:
+    search_mode = st.radio(
+        "Search Mode",
+        ["⚡ Quick Select (Preset Demo)", "⌨️ Free Text Search"],
+        horizontal=True,
     )
 
-if query:
-    clean_q = query.strip()
-    
-    # Step 1: Enforce Minimum Search Length
-    if len(clean_q) < 3 and search_mode == "⌨️ Free Text Search":
-        st.warning("⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox').")
-    elif not active_api_key:
-        st.error(
-            "Please provide a valid Gonka API Key in Streamlit Cloud Secrets or the sidebar."
-        )
+    if search_mode == "⚡ Quick Select (Preset Demo)":
+        popular_meds = [
+            "Metformin",
+            "Augmentin",
+            "Paracetamol",
+            "Amoxicillin",
+            "Pantoprazole",
+            "Atorvastatin",
+            "Azithromycin",
+            "Cetirizine",
+            "Omeprazole",
+            "Ibuprofen",
+        ]
+        query = st.selectbox("Select a medicine query:", [""] + popular_meds)
     else:
-        client = OpenAI(
-            api_key=active_api_key,
-            base_url=BASE_URL,
-            timeout=45.0,
-            max_retries=2,
+        query = st.text_input(
+            "🔍 Search Brand or Active Ingredient",
+            placeholder="e.g. Panadol, Augmentin, Metformin, Amoxicillin",
         )
 
-        with st.spinner("Searching database and executing dual-AI routing..."):
-            lookup = findSubstitutes(clean_q)
+    if query:
+        clean_q = query.strip()
+        
+        if len(clean_q) < 3 and search_mode == "⌨️ Free Text Search":
+            st.warning("⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox').")
+        elif not active_api_key:
+            st.error(
+                "Please provide a valid Gonka API Key in Streamlit Cloud Secrets or the sidebar."
+            )
+        else:
+            client = OpenAI(
+                api_key=active_api_key,
+                base_url=BASE_URL,
+                timeout=45.0,
+                max_retries=2,
+            )
 
-            if not lookup:
-                st.warning(
-                    f"No match found in dataset for **'{clean_q}'**. Try searching by active ingredient."
-                )
-            else:
-                medName = lookup["matchedMedicine"]
-                active = lookup["activeIngredient"]
-                subs = lookup["substitutes"]
+            with st.spinner("Searching database and executing dual-AI routing..."):
+                lookup = findSubstitutes(clean_q)
 
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    f_a = executor.submit(
-                        runModelA, client, medName, active, subs
+                if not lookup:
+                    st.warning(
+                        f"No match found in dataset for **'{clean_q}'**. Try searching by active ingredient."
                     )
-                    f_b = executor.submit(runModelB, client, medName, location)
-                    dataA, errA = f_a.result()
-                    dataB, errB = f_b.result()
+                else:
+                    medName = lookup["matchedMedicine"]
+                    active = lookup["activeIngredient"]
+                    subs = lookup["substitutes"]
 
-                genericMatchPTS = 100 if lookup["genericMatchFound"] else 0
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        f_a = executor.submit(
+                            runModelA, client, medName, active, subs
+                        )
+                        f_b = executor.submit(runModelB, client, medName, location)
+                        dataA, errA = f_a.result()
+                        dataB, errB = f_b.result()
 
-                # Safely parse numeric responses from LLM outputs
-                stock_raw = (
-                    dataB.get("estimated_in_stock_confidence")
-                    if isinstance(dataB, dict)
-                    else 0
-                )
-                stockScore = safe_float(stock_raw, 0.0)
+                    genericMatchPTS = 100 if lookup["genericMatchFound"] else 0
 
-                safety_approved = (
-                    dataA.get("safety_approved")
-                    if isinstance(dataA, dict)
-                    else False
-                )
-                safety_default = 100.0 if safety_approved else 0.0
-                safety_raw = (
-                    dataA.get("safety_score")
-                    if isinstance(dataA, dict)
-                    else None
-                )
-                safetyScore = safe_float(safety_raw, safety_default)
-
-                consensusScore = (
-                    (genericMatchPTS * 0.4)
-                    + (stockScore * 0.4)
-                    + (safetyScore * 0.2)
-                )
-
-                st.markdown("---")
-
-                if len(subs) > 0:
-                    st.success(
-                        "💡 **Generic Value Alert:** Generic substitutes found. Switching from branded drugs to unbranded generics saves consumers an estimated **50% to 75%** on prescription costs."
-                    )
-
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Matched Drug", medName)
-                m2.metric("Generics Found", len(subs))
-                m3.metric(
-                    "Stock Risk Level",
-                    (
-                        dataB.get("stock_risk", "N/A")
+                    stock_raw = (
+                        dataB.get("estimated_in_stock_confidence")
                         if isinstance(dataB, dict)
-                        else "N/A"
-                    ),
-                )
-                m4.metric("Consensus Score", f"{consensusScore:.1f}%")
+                        else 0
+                    )
+                    stockScore = safe_float(stock_raw, 0.0)
 
-                st.markdown("### 🧪 Active Ingredients")
-                st.info(f"**{active}**")
-
-                col_left, col_right = st.columns(2)
-
-                with col_left:
-                    st.subheader("🛡️ Clinical Safety Evaluation (Kimi-K2.6)")
-                    if (
+                    safety_approved = (
                         dataA.get("safety_approved")
                         if isinstance(dataA, dict)
                         else False
-                    ):
-                        st.success("✅ **Safety Status:** Approved Bio-Equivalent")
-                    else:
-                        st.warning(
-                            "⚠️ **Safety Status:** Requires Pharmacist Review"
+                    )
+                    safety_default = 100.0 if safety_approved else 0.0
+                    safety_raw = (
+                        dataA.get("safety_score")
+                        if isinstance(dataA, dict)
+                        else None
+                    )
+                    safetyScore = safe_float(safety_raw, safety_default)
+
+                    consensusScore = (
+                        (genericMatchPTS * 0.4)
+                        + (stockScore * 0.4)
+                        + (safetyScore * 0.2)
+                    )
+
+                    st.markdown("---")
+
+                    if len(subs) > 0:
+                        st.success(
+                            "💡 **Generic Value Alert:** Generic substitutes found. Switching from branded drugs to unbranded generics saves consumers an estimated **50% to 75%** on prescription costs."
                         )
 
-                    st.markdown("**Dosage Instructions:**")
-                    st.write(
-                        dataA.get("dosage_instructions", "N/A")
-                        if isinstance(dataA, dict)
-                        else "N/A"
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Matched Drug", medName)
+                    m2.metric("Generics Found", len(subs))
+                    m3.metric(
+                        "Stock Risk Level",
+                        (
+                            dataB.get("stock_risk", "N/A")
+                            if isinstance(dataB, dict)
+                            else "N/A"
+                        ),
                     )
+                    m4.metric("Consensus Score", f"{consensusScore:.1f}%")
 
-                    st.markdown("**Key Clinical Warnings:**")
-                    st.caption(
-                        dataA.get("key_warnings", "None reported.")
-                        if isinstance(dataA, dict)
-                        else "None reported."
-                    )
+                    st.markdown("### 🧪 Active Ingredients")
+                    st.info(f"**{active}**")
 
-                    brief_text = f"""TIBA CLINICAL SAFETY BRIEF
+                    col_left, col_right = st.columns(2)
+
+                    with col_left:
+                        st.subheader("🛡️ Clinical Safety Evaluation (Kimi-K2.6)")
+                        if (
+                            dataA.get("safety_approved")
+                            if isinstance(dataA, dict)
+                            else False
+                        ):
+                            st.success("✅ **Safety Status:** Approved Bio-Equivalent")
+                        else:
+                            st.warning(
+                                "⚠️ **Safety Status:** Requires Pharmacist Review"
+                            )
+
+                        st.markdown("**Dosage Instructions:**")
+                        st.write(
+                            dataA.get("dosage_instructions", "N/A")
+                            if isinstance(dataA, dict)
+                            else "N/A"
+                        )
+
+                        st.markdown("**Key Clinical Warnings:**")
+                        st.caption(
+                            dataA.get("key_warnings", "None reported.")
+                            if isinstance(dataA, dict)
+                            else "None reported."
+                        )
+
+                        brief_text = f"""MediFind CLINICAL SAFETY BRIEF
 ----------------------------------------
 Drug Queried: {clean_q}
 Matched Drug: {medName}
@@ -406,60 +403,98 @@ DOSAGE INSTRUCTIONS:
 CLINICAL WARNINGS:
 {dataA.get('key_warnings', 'None') if isinstance(dataA, dict) else 'None'}
 ----------------------------------------
-Generated by Tiba AI Engine via Gonka Router
+Generated by MediFind AI Engine via Gonka Router
 """
-                    st.download_button(
-                        label="📄 Download Pharmacist Brief",
-                        data=brief_text,
-                        file_name=f"{medName}_safety_brief.txt",
-                        mime="text/plain",
-                    )
+                        st.download_button(
+                            label="📄 Download Pharmacist Brief",
+                            data=brief_text,
+                            file_name=f"{medName}_safety_brief.txt",
+                            mime="text/plain",
+                        )
 
-                with col_right:
-                    st.subheader(
-                        "🏪 Inventory & Store Mapping (DeepSeek-V4)"
-                    )
-                    st.write(f"**Location Filter:** {location}")
+                    with col_right:
+                        st.subheader(
+                            "🏪 Inventory & Store Mapping (DeepSeek-V4)"
+                        )
+                        st.write(f"**Location Filter:** {location}")
 
-                    chains = (
-                        dataB.get("nearest_chain_availability", [])
-                        if isinstance(dataB, dict)
-                        else []
-                    )
-                    if chains:
-                        st.write("**Available at Nearby Retailers:**")
-                        for chain in chains:
-                            st.markdown(f"- 🏢 {chain}")
+                        chains = (
+                            dataB.get("nearest_chain_availability", [])
+                            if isinstance(dataB, dict)
+                            else []
+                        )
+                        if chains:
+                            st.write("**Available at Nearby Retailers:**")
+                            for chain in chains:
+                                st.markdown(f"- 🏢 {chain}")
+                        else:
+                            st.write("No specific retail chain data reported.")
+
+                        progress_val = max(0.0, min(100.0, stockScore)) / 100.0
+                        st.progress(
+                            progress_val,
+                            text=f"Estimated Stock Availability: {stockScore:.0f}%",
+                        )
+
+                    st.markdown("---")
+                    st.subheader("🔄 Verified Generic Substitutes")
+                    if subs:
+                        sub_df = pd.DataFrame(
+                            {
+                                "Generic Brand Name": subs,
+                                "Active Ingredient Match": [active] * len(subs),
+                                "Form": [
+                                    (
+                                        "Tablet / Capsule"
+                                        if "Tablet" in s or "Capsule" in s
+                                        else "Other"
+                                    )
+                                    for s in subs
+                                ],
+                                "Status": ["Bio-Equivalent" for _ in subs],
+                            }
+                        )
+                        st.dataframe(sub_df, use_container_width=True)
                     else:
-                        st.write("No specific retail chain data reported.")
+                        st.info(
+                            "No lower-cost direct generic matches available in the local database."
+                        )
 
-                    # Clamp progress value between 0.0 and 1.0 safely
-                    progress_val = max(0.0, min(100.0, stockScore)) / 100.0
-                    st.progress(
-                        progress_val,
-                        text=f"Estimated Stock Availability: {stockScore:.0f}%",
-                    )
+# ================= TAB 2: MEDICINE REFERENCE LIBRARY =================
+with tab_library:
+    st.subheader("📖 Medicine Catalog & Active Ingredients Library")
+    st.caption("Browse or filter the local pharmaceutical database.")
 
-                st.markdown("---")
-                st.subheader("🔄 Verified Generic Substitutes")
-                if subs:
-                    sub_df = pd.DataFrame(
-                        {
-                            "Generic Brand Name": subs,
-                            "Active Ingredient Match": [active] * len(subs),
-                            "Form": [
-                                (
-                                    "Tablet / Capsule"
-                                    if "Tablet" in s or "Capsule" in s
-                                    else "Other"
-                                )
-                                for s in subs
-                            ],
-                            "Status": ["Bio-Equivalent" for _ in subs],
-                        }
-                    )
-                    st.dataframe(sub_df, use_container_width=True)
-                else:
-                    st.info(
-                        "No lower-cost direct generic matches available in the local database."
-                    )
+    lib_col1, lib_col2 = st.columns([2, 1])
+    
+    with lib_col1:
+        lib_filter = st.text_input(
+            "🔎 Filter Catalog by Keyword or Letter",
+            placeholder="Type 'Para', 'Amox', or 'Tablet'...",
+            key="lib_filter_input"
+        )
+
+    with lib_col2:
+        st.write("") # Alignment spacing
+        st.write("")
+        st.caption(f"Showing **{len(df):,}** total records in loaded dataset.")
+
+    # Apply live text filter to dataframe
+    if lib_filter and len(lib_filter.strip()) > 0:
+        clean_lib_q = lib_filter.strip().lower()
+        display_df = df[
+            df["Name"].str.contains(clean_lib_q, case=False, na=False, regex=False) |
+            df["Contains"].str.contains(clean_lib_q, case=False, na=False, regex=False)
+        ]
+    else:
+        display_df = df
+
+    # Display dataset table
+    st.dataframe(
+        display_df[["Name", "Contains"]].rename(
+            columns={"Name": "Brand / Medicine Name", "Contains": "Active Ingredients"}
+        ),
+        use_container_width=True,
+        height=500,
+        hide_index=True
+    )

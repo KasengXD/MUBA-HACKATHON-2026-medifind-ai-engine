@@ -168,7 +168,7 @@ def runModelB(client, medName, location):
         }, str(e)
 
 # 4. Main UI Layout
-st.title("💊 Tiba: Medicine Search & Generic Engine")
+st.title("💊 MediFind: Medicine Search & Generic Engine")
 st.caption("Powered by Gonka Router Dual-Model AI Orchestration")
 
 # Smart Search Toggle [UPGRADE 2]

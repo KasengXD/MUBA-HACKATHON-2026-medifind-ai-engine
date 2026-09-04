@@ -49,7 +49,7 @@ dataset_scale = st.sidebar.radio(
 target_path = (
     "sample_medicines.csv"
     if "Sample" in dataset_scale
-    else "cleaned_medicines_final.csv"
+    else "cleaned_medicines_final.csv.gz"  # Updated extension
 )
 
 # Safe Loader: Prevents app crash if full dataset is missing on GitHub/Cloud

@@ -3,12 +3,22 @@ import json
 import os
 import re
 import time
-from dotenv import load_dotenv
-from openai import OpenAI
 import pandas as pd
 import streamlit as st
 
-# Safe optional imports to prevent app crashes if dependencies are missing
+# 1. Safe Optional Third-Party Imports
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
 try:
     from rapidfuzz import process, fuzz
     HAS_RAPIDFUZZ = True
@@ -29,7 +39,7 @@ try:
 except ImportError:
     HAS_GEOPY = False
 
-# 1. Page Configuration & Safe Secret Loader
+# 2. App Page Configuration
 st.set_page_config(
     page_title="MediFind | Generic Medicine Engine",
     page_icon="💊",
@@ -54,12 +64,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-load_dotenv()
-
 
 def get_secret(key, default=""):
     try:
-        if key in st.secrets:
+        if hasattr(st, "secrets") and key in st.secrets:
             return st.secrets[key]
     except Exception:
         pass
@@ -154,7 +162,7 @@ STATE_CITY_MAP = {
 }
 
 
-# 2. Sidebar Controls & Safe Dataset Loader
+# 3. Sidebar Controls & Safe Dataset Loader
 st.sidebar.title("⚙️ Engine Controls")
 
 with st.sidebar.expander("📊 Database & API Settings", expanded=True):
@@ -255,7 +263,6 @@ with st.sidebar.expander("📍 Location Selection", expanded=True):
                 m,
                 height=200,
                 key="sidebar_map",
-                use_container_width=True,
                 returned_objects=["last_clicked"],
             )
 
@@ -269,7 +276,10 @@ with st.sidebar.expander("📍 Location Selection", expanded=True):
                 ):
                     st.session_state["map_lat"] = clicked_lat
                     st.session_state["map_lng"] = clicked_lng
-                    st.rerun()
+                    if hasattr(st, "rerun"):
+                        st.rerun()
+                    elif hasattr(st, "experimental_rerun"):
+                        st.experimental_rerun()
 
             location = reverse_geocode(
                 st.session_state["map_lat"], st.session_state["map_lng"]
@@ -294,8 +304,11 @@ BRAND_ALIASES = {
 }
 
 
-# 3. Core Engine Functions
+# 4. Core Search & Substitute Engine
 def findSubstitutes(searchTerm, top_n=5):
+    if df.empty:
+        return None
+
     raw_query = str(searchTerm or "").strip()
     clean_query = raw_query.lower()
 
@@ -304,22 +317,22 @@ def findSubstitutes(searchTerm, top_n=5):
 
     # Standard Substring Match
     match = df[
-        df["Name"].str.contains(clean_query, case=False, na=False, regex=False)
-        | df["Contains"].str.contains(clean_query, case=False, na=False, regex=False)
+        df["Name"].astype(str).str.contains(clean_query, case=False, na=False, regex=False)
+        | df["Contains"].astype(str).str.contains(clean_query, case=False, na=False, regex=False)
     ]
 
     # Fuzzy Search Fallback if exact match fails
     fuzzy_corrected = False
     if match.empty:
         all_names = df["Name"].dropna().tolist()
-        if HAS_RAPIDFUZZ:
+        if HAS_RAPIDFUZZ and all_names:
             best_matches = process.extract(
                 clean_query, all_names, scorer=fuzz.WRatio, limit=1
             )
             if best_matches and best_matches[0][1] >= 65:
                 clean_query = best_matches[0][0]
                 fuzzy_corrected = True
-        else:
+        elif all_names:
             closest = difflib.get_close_matches(clean_query, all_names, n=1, cutoff=0.6)
             if closest:
                 clean_query = closest[0]
@@ -332,14 +345,14 @@ def findSubstitutes(searchTerm, top_n=5):
         return None
 
     match = match.copy()
-    match["is_injection"] = match["Name"].str.contains(
+    match["is_injection"] = match["Name"].astype(str).str.contains(
         "Injection|Infusion|IV", case=False, na=False, regex=False
     )
-    match["ingredient_count"] = match["Contains"].str.count(r"\+")
+    match["ingredient_count"] = match["Contains"].astype(str).str.count(r"\+")
     sorted_matches = match.sort_values(by=["is_injection", "ingredient_count"])
 
     # If exact name match exists for selected item, use it
-    exact_selected = sorted_matches[sorted_matches["Name"].str.lower() == raw_query.lower()]
+    exact_selected = sorted_matches[sorted_matches["Name"].astype(str).str.lower() == raw_query.lower()]
     if not exact_selected.empty:
         target = exact_selected.iloc[0]["Name"]
         active = exact_selected.iloc[0]["Contains"]
@@ -361,7 +374,16 @@ def findSubstitutes(searchTerm, top_n=5):
     }
 
 
-def _execute_model_a(client, medName, active, subs):
+def _execute_model_a(medName, active, subs, api_key, base_url):
+    if not HAS_OPENAI:
+        return {
+            "safety_approved": True,
+            "safety_score": 85,
+            "dosage_instructions": "Consult a local healthcare provider or pharmacist.",
+            "key_warnings": "openai package not installed in environment.",
+        }, None
+
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
     system_prompt = (
         "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
         "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON: "
@@ -399,7 +421,15 @@ def _execute_model_a(client, medName, active, subs):
     }, last_error
 
 
-def _execute_model_b(client, medName, location):
+def _execute_model_b(medName, location, api_key, base_url):
+    if not HAS_OPENAI:
+        return {
+            "stock_risk": "Low",
+            "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
+            "estimated_in_stock_confidence": 80,
+        }, None
+
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
     system_prompt = (
         f"You are a retail pharmaceutical market inventory estimation engine. "
         f"Assess market supply risk and typical stock availability for {medName} in {location}. "
@@ -435,22 +465,22 @@ def _execute_model_b(client, medName, location):
     }, "Using default regional inventory estimate."
 
 
-# Cached wrappers for LLM execution
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_run_model_a(api_key, base_url, medName, active, subs):
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
-    return _execute_model_a(client, medName, active, subs)
+    return _execute_model_a(medName, active, subs, api_key, base_url)
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_run_model_b(api_key, base_url, medName, location):
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
-    return _execute_model_b(client, medName, location)
+    return _execute_model_b(medName, location, api_key, base_url)
 
 
-# 4. Main UI Layout
+# 5. Main UI Layout
 st.title("💊 MediFind: Medicine Search & Generic Engine")
 st.caption("Powered by Gonka Router Dual-Model AI Orchestration")
+
+if not HAS_OPENAI:
+    st.warning("⚠️ `openai` python library is not detected in your environment. Running in offline UI demo mode.")
 
 tab_search, tab_library = st.tabs(["🔍 Search & Evaluation", "📚 Medicine Reference Library"])
 
@@ -503,14 +533,14 @@ with tab_search:
 
         if len(clean_q) < 3 and search_mode == "⌨️ Free Text Search":
             st.warning("⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox').")
-        elif not active_api_key:
+        elif not active_api_key and HAS_OPENAI:
             st.error(
                 "Please provide a valid Gonka API Key in Streamlit Cloud Secrets or the sidebar."
             )
         else:
             # Check for multiple product strength variants in database
             matching_variants = df[
-                df["Name"].str.contains(clean_q, case=False, na=False, regex=False)
+                df["Name"].astype(str).str.contains(clean_q, case=False, na=False, regex=False)
             ]["Name"].unique().tolist()
 
             target_search_term = clean_q
@@ -739,8 +769,8 @@ with tab_library:
     if lib_filter and len(lib_filter.strip()) > 0:
         clean_lib_q = lib_filter.strip().lower()
         display_df = df[
-            df["Name"].str.contains(clean_lib_q, case=False, na=False, regex=False)
-            | df["Contains"].str.contains(
+            df["Name"].astype(str).str.contains(clean_lib_q, case=False, na=False, regex=False)
+            | df["Contains"].astype(str).str.contains(
                 clean_lib_q, case=False, na=False, regex=False
             )
         ]

@@ -11,6 +11,14 @@ import folium
 from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
 
+# Optional fuzzy matching library with difflib fallback
+try:
+    from rapidfuzz import process, fuzz
+    HAS_RAPIDFUZZ = True
+except ImportError:
+    HAS_RAPIDFUZZ = False
+    import difflib
+
 # 1. Page Configuration & Safe Secret Loader
 st.set_page_config(
     page_title="MediFind | Generic Medicine Engine",
@@ -18,11 +26,9 @@ st.set_page_config(
     layout="wide",
 )
 
-# Load environment variables
 load_dotenv()
 
 
-# Safe secret reader for both Cloud and Local execution
 def get_secret(key, default=""):
     try:
         if key in st.secrets:
@@ -36,7 +42,6 @@ API_KEY = get_secret("GONKA_API_KEY", "")
 BASE_URL = get_secret("GONKA_BASE_URL", "https://api.gonkarouter.io/v1")
 
 
-# Helper function for safe numeric casting from LLM outputs
 def safe_float(val, default=0.0):
     if val is None:
         return default
@@ -47,7 +52,6 @@ def safe_float(val, default=0.0):
         return default
 
 
-# Helper function to convert lat/lng to readable address
 def reverse_geocode(lat, lng):
     try:
         geolocator = Nominatim(user_agent="medifind_app")
@@ -64,7 +68,6 @@ def reverse_geocode(lat, lng):
         return f"{lat:.4f}, {lng:.4f}"
 
 
-# Preset State & City directory
 STATE_CITY_MAP = {
     "Selangor": [
         "Petaling Jaya",
@@ -113,11 +116,20 @@ STATE_CITY_MAP = {
 # 2. Sidebar Controls & Safe Dataset Loader
 st.sidebar.title("⚙️ Engine Controls")
 
-dataset_scale = st.sidebar.radio(
-    "📊 Database Scale Mode",
-    ["Sample Database (~10k)", "Full Production Database (~147k)"],
-    index=0,
-)
+with st.sidebar.expander("📊 Database & API Settings", expanded=True):
+    dataset_scale = st.radio(
+        "Database Scale Mode",
+        ["Sample Database (~10k)", "Full Production Database (~147k)"],
+        index=0,
+    )
+    user_api_key = st.text_input(
+        "🔑 Gonka API Key",
+        value="",
+        type="password",
+        help="Leave blank to use Streamlit Cloud Secrets",
+    )
+
+active_api_key = user_api_key.strip() if user_api_key.strip() else API_KEY
 
 target_path = (
     "sample_medicines.csv"
@@ -146,109 +158,91 @@ def load_data(path):
 
 df = load_data(target_path)
 
-# --- Location Selection Module ---
-st.sidebar.markdown("### 📍 Location Selection")
-loc_mode = st.sidebar.radio(
-    "Location Selection Mode",
-    [
-        "🏙️ Select State & City",
-        "📌 Interactive Map Pin",
-        "⌨️ Manual Free Text",
-    ],
-    index=0,
-)
-
-if loc_mode == "🏙️ Select State & City":
-    selected_state = st.sidebar.selectbox(
-        "🏛️ Select State",
-        options=list(STATE_CITY_MAP.keys()) + ["Other / Custom State"],
+with st.sidebar.expander("📍 Location Selection", expanded=True):
+    loc_mode = st.radio(
+        "Mode",
+        [
+            "🏙️ Select State & City",
+            "📌 Interactive Map Pin",
+            "⌨️ Manual Free Text",
+        ],
+        index=0,
     )
 
-    if selected_state == "Other / Custom State":
-        custom_city = st.sidebar.text_input("City", value="Petaling Jaya")
-        custom_state = st.sidebar.text_input("State", value="Selangor")
-        location = f"{custom_city.strip()}, {custom_state.strip()}".strip(", ")
-    else:
-        city_options = STATE_CITY_MAP.get(selected_state, []) + ["Other / Custom City"]
-        selected_city = st.sidebar.selectbox("🌆 Select City", options=city_options)
+    if loc_mode == "🏙️ Select State & City":
+        selected_state = st.selectbox(
+            "🏛️ State",
+            options=list(STATE_CITY_MAP.keys()) + ["Other / Custom State"],
+        )
 
-        if selected_city == "Other / Custom City":
-            custom_city = st.sidebar.text_input("Enter City Name", value="")
-            location = (
-                f"{custom_city.strip()}, {selected_state}"
-                if custom_city.strip()
-                else selected_state
-            )
+        if selected_state == "Other / Custom State":
+            custom_city = st.text_input("City", value="Petaling Jaya")
+            custom_state = st.text_input("State", value="Selangor")
+            location = f"{custom_city.strip()}, {custom_state.strip()}".strip(", ")
         else:
-            location = f"{selected_city}, {selected_state}"
+            city_options = STATE_CITY_MAP.get(selected_state, []) + [
+                "Other / Custom City"
+            ]
+            selected_city = st.selectbox("🌆 City", options=city_options)
 
-elif loc_mode == "📌 Interactive Map Pin":
-    st.sidebar.caption("Click anywhere on the map to pin your location:")
+            if selected_city == "Other / Custom City":
+                custom_city = st.text_input("Enter City Name", value="")
+                location = (
+                    f"{custom_city.strip()}, {selected_state}"
+                    if custom_city.strip()
+                    else selected_state
+                )
+            else:
+                location = f"{selected_city}, {selected_state}"
 
-    # Initialize pinned location in session state
-    if "map_lat" not in st.session_state:
-        st.session_state["map_lat"] = 3.1073
-        st.session_state["map_lng"] = 101.6067
+    elif loc_mode == "📌 Interactive Map Pin":
+        st.caption("Click anywhere on the map to pin location:")
 
-    # Create Folium Map with center on current coordinates
-    m = folium.Map(
-        location=[st.session_state["map_lat"], st.session_state["map_lng"]],
-        zoom_start=11,
-    )
+        if "map_lat" not in st.session_state:
+            st.session_state["map_lat"] = 3.1073
+            st.session_state["map_lng"] = 101.6067
 
-    # Add active pin marker on the map
-    folium.Marker(
-        [st.session_state["map_lat"], st.session_state["map_lng"]],
-        popup="Pinned Location",
-        tooltip="Selected Location",
-        icon=folium.Icon(color="red", icon="info-sign"),
-    ).add_to(m)
+        m = folium.Map(
+            location=[st.session_state["map_lat"], st.session_state["map_lng"]],
+            zoom_start=11,
+        )
 
-    # Render map component
-    map_out = st_folium(
-        m,
-        height=220,
-        key="sidebar_map",
-        use_container_width=True,
-        returned_objects=["last_clicked"],
-    )
+        folium.Marker(
+            [st.session_state["map_lat"], st.session_state["map_lng"]],
+            popup="Pinned Location",
+            tooltip="Selected Location",
+            icon=folium.Icon(color="red", icon="info-sign"),
+        ).add_to(m)
 
-    # Update state and rerun if a new pin point is clicked
-    if map_out and map_out.get("last_clicked"):
-        clicked_lat = map_out["last_clicked"]["lat"]
-        clicked_lng = map_out["last_clicked"]["lng"]
+        map_out = st_folium(
+            m,
+            height=200,
+            key="sidebar_map",
+            use_container_width=True,
+            returned_objects=["last_clicked"],
+        )
 
-        if (
-            abs(clicked_lat - st.session_state["map_lat"]) > 1e-5
-            or abs(clicked_lng - st.session_state["map_lng"]) > 1e-5
-        ):
-            st.session_state["map_lat"] = clicked_lat
-            st.session_state["map_lng"] = clicked_lng
-            st.rerun()
+        if map_out and map_out.get("last_clicked"):
+            clicked_lat = map_out["last_clicked"]["lat"]
+            clicked_lng = map_out["last_clicked"]["lng"]
 
-    location = reverse_geocode(
-        st.session_state["map_lat"], st.session_state["map_lng"]
-    )
+            if (
+                abs(clicked_lat - st.session_state["map_lat"]) > 1e-5
+                or abs(clicked_lng - st.session_state["map_lng"]) > 1e-5
+            ):
+                st.session_state["map_lat"] = clicked_lat
+                st.session_state["map_lng"] = clicked_lng
+                st.rerun()
 
-else:
-    location = st.sidebar.text_input("📍 Your Location", value="Petaling Jaya, Selangor")
+        location = reverse_geocode(
+            st.session_state["map_lat"], st.session_state["map_lng"]
+        )
+
+    else:
+        location = st.text_input("📍 Your Location", value="Petaling Jaya, Selangor")
 
 st.sidebar.info(f"**Target Location:** {location}")
-
-user_api_key = st.sidebar.text_input(
-    "🔑 Gonka API Key",
-    value="",
-    type="password",
-    help="Leave blank to use Streamlit Cloud Secrets",
-)
-
-# Active key resolution order: Sidebar Input -> Streamlit Secrets -> Local .env
-active_api_key = user_api_key.strip() if user_api_key.strip() else API_KEY
-
-st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Active Database Records:** `{len(df):,}`")
-st.sidebar.markdown("**Safety Model:** `Kimi-K2.6`")
-st.sidebar.markdown("**Supply Model:** `DeepSeek-V4-Flash`")
+st.sidebar.markdown(f"**Active Records:** `{len(df):,}`")
 
 BRAND_ALIASES = {
     "panadol": "paracetamol",
@@ -260,7 +254,7 @@ BRAND_ALIASES = {
 }
 
 
-# 3. Core Engine Functions
+# 3. Core Engine Functions with Fuzzy Search & Caching
 def findSubstitutes(searchTerm, top_n=5):
     raw_query = str(searchTerm or "").strip()
     clean_query = raw_query.lower()
@@ -268,10 +262,32 @@ def findSubstitutes(searchTerm, top_n=5):
     if clean_query in BRAND_ALIASES:
         clean_query = BRAND_ALIASES[clean_query]
 
+    # Standard Substring Match
     match = df[
         df["Name"].str.contains(clean_query, case=False, na=False, regex=False)
         | df["Contains"].str.contains(clean_query, case=False, na=False, regex=False)
     ]
+
+    # Fuzzy Search Fallback if exact match fails
+    fuzzy_corrected = False
+    if match.empty:
+        all_names = df["Name"].dropna().tolist()
+        if HAS_RAPIDFUZZ:
+            best_matches = process.extract(
+                clean_query, all_names, scorer=fuzz.WRatio, limit=1
+            )
+            if best_matches and best_matches[0][1] >= 65:
+                clean_query = best_matches[0][0]
+                fuzzy_corrected = True
+        else:
+            closest = difflib.get_close_matches(clean_query, all_names, n=1, cutoff=0.6)
+            if closest:
+                clean_query = closest[0]
+                fuzzy_corrected = True
+
+        if fuzzy_corrected:
+            match = df[df["Name"] == clean_query]
+
     if match.empty:
         return None
 
@@ -293,10 +309,12 @@ def findSubstitutes(searchTerm, top_n=5):
         "activeIngredient": active,
         "substitutes": list(subs[:top_n]),
         "genericMatchFound": len(subs) > 0,
+        "fuzzyCorrected": fuzzy_corrected,
+        "originalQuery": raw_query,
     }
 
 
-def runModelA(client, medName, active, subs):
+def _execute_model_a(client, medName, active, subs):
     system_prompt = (
         "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
         "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON: "
@@ -320,12 +338,10 @@ def runModelA(client, medName, active, subs):
                 max_tokens=512,
             )
             raw_text = resA.choices[0].message.content or ""
-            
             raw_text = re.sub(r"```json\s*", "", raw_text)
             raw_text = re.sub(r"```\s*", "", raw_text).strip()
 
             json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-
             if json_match:
                 parsed = json.loads(json_match.group(0), strict=False)
                 if isinstance(parsed, dict):
@@ -344,7 +360,7 @@ def runModelA(client, medName, active, subs):
     }, last_error
 
 
-def runModelB(client, medName, location):
+def _execute_model_b(client, medName, location):
     system_prompt = (
         f"You are a retail pharmaceutical market inventory estimation engine. "
         f"Assess market supply risk and typical stock availability for {medName} in {location}. "
@@ -368,7 +384,6 @@ def runModelB(client, medName, location):
             max_tokens=512,
         )
         raw_text = resB.choices[0].message.content or ""
-        
         raw_text = re.sub(r"```json\s*", "", raw_text)
         raw_text = re.sub(r"```\s*", "", raw_text).strip()
 
@@ -377,7 +392,7 @@ def runModelB(client, medName, location):
             parsed = json.loads(json_match.group(0), strict=False)
             if isinstance(parsed, dict):
                 return parsed, None
-    except Exception as e:
+    except Exception:
         pass
 
     return {
@@ -385,6 +400,19 @@ def runModelB(client, medName, location):
         "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
         "estimated_in_stock_confidence": 80,
     }, "Using default regional inventory estimate."
+
+
+# Cached wrappers for LLM execution
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_run_model_a(api_key, base_url, medName, active, subs):
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
+    return _execute_model_a(client, medName, active, subs)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_run_model_b(api_key, base_url, medName, location):
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
+    return _execute_model_b(client, medName, location)
 
 
 # 4. Main UI Layout
@@ -421,9 +449,36 @@ with tab_search:
             placeholder="e.g. Panadol, Augmentin, Metformin, Amoxicillin",
         )
 
-    if query:
+    # Empty State Dashboard Landing Page
+    if not query:
+        st.markdown("---")
+        st.markdown("### 📊 Engine Dashboard & Key Metrics")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Database Index", f"{len(df):,} Drugs")
+        d2.metric("Clinical AI", "Kimi-K2.6")
+        d3.metric("Supply AI", "DeepSeek-V4")
+        d4.metric("Average Generic Savings", "50% - 75%")
+
+        st.markdown("#### ⚡ Popular Searches")
+        p_cols = st.columns(5)
+        sample_tags = ["Paracetamol", "Augmentin", "Metformin", "Atorvastatin", "Ibuprofen"]
+        for idx, tag in enumerate(sample_tags):
+            p_cols[idx].info(f"💊 **{tag}**")
+
+        st.markdown("---")
+        st.markdown("#### 💡 Interactive Generic Savings Estimator")
+        brand_price = st.slider("Brand-Name Drug Cost ($/month):", 10, 300, 80)
+        generic_price = brand_price * 0.35
+        monthly_saving = brand_price - generic_price
+        annual_saving = monthly_saving * 12
+
+        s1, s2 = st.columns(2)
+        s1.metric("Est. Generic Monthly Cost", f"${generic_price:.2f}")
+        s2.metric("Annual Consumer Savings", f"${annual_saving:.2f}", delta=f"-{65}% Cost Reduction")
+
+    else:
         clean_q = query.strip()
-        
+
         if len(clean_q) < 3 and search_mode == "⌨️ Free Text Search":
             st.warning("⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox').")
         elif not active_api_key:
@@ -431,13 +486,6 @@ with tab_search:
                 "Please provide a valid Gonka API Key in Streamlit Cloud Secrets or the sidebar."
             )
         else:
-            client = OpenAI(
-                api_key=active_api_key,
-                base_url=BASE_URL,
-                timeout=45.0,
-                max_retries=2,
-            )
-
             with st.spinner("Searching database and executing dual-AI routing..."):
                 lookup = findSubstitutes(clean_q)
 
@@ -450,11 +498,28 @@ with tab_search:
                     active = lookup["activeIngredient"]
                     subs = lookup["substitutes"]
 
+                    if lookup.get("fuzzyCorrected"):
+                        st.info(
+                            f"🔍 Showing results for autocorrected query: **'{medName}'** (Original: *'{lookup['originalQuery']}'*)"
+                        )
+
+                    # Parallel Cached Model Calls
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         f_a = executor.submit(
-                            runModelA, client, medName, active, subs
+                            cached_run_model_a,
+                            active_api_key,
+                            BASE_URL,
+                            medName,
+                            active,
+                            subs,
                         )
-                        f_b = executor.submit(runModelB, client, medName, location)
+                        f_b = executor.submit(
+                            cached_run_model_b,
+                            active_api_key,
+                            BASE_URL,
+                            medName,
+                            location,
+                        )
                         dataA, errA = f_a.result()
                         dataB, errB = f_b.result()
 
@@ -615,12 +680,12 @@ with tab_library:
     st.caption("Browse or filter the local pharmaceutical database.")
 
     lib_col1, lib_col2 = st.columns([2, 1])
-    
+
     with lib_col1:
         lib_filter = st.text_input(
             "🔎 Filter Catalog by Keyword or Letter",
             placeholder="Type 'Para', 'Amox', or 'Tablet'...",
-            key="lib_filter_input"
+            key="lib_filter_input",
         )
 
     with lib_col2:
@@ -631,8 +696,10 @@ with tab_library:
     if lib_filter and len(lib_filter.strip()) > 0:
         clean_lib_q = lib_filter.strip().lower()
         display_df = df[
-            df["Name"].str.contains(clean_lib_q, case=False, na=False, regex=False) |
-            df["Contains"].str.contains(clean_lib_q, case=False, na=False, regex=False)
+            df["Name"].str.contains(clean_lib_q, case=False, na=False, regex=False)
+            | df["Contains"].str.contains(
+                clean_lib_q, case=False, na=False, regex=False
+            )
         ]
     else:
         display_df = df
@@ -643,5 +710,5 @@ with tab_library:
         ),
         use_container_width=True,
         height=500,
-        hide_index=True
+        hide_index=True,
     )

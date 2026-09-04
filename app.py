@@ -7,17 +7,27 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import pandas as pd
 import streamlit as st
-import folium
-from streamlit_folium import st_folium
-from geopy.geocoders import Nominatim
 
-# Optional fuzzy matching library with difflib fallback
+# Safe optional imports to prevent app crashes if dependencies are missing
 try:
     from rapidfuzz import process, fuzz
     HAS_RAPIDFUZZ = True
 except ImportError:
     HAS_RAPIDFUZZ = False
     import difflib
+
+try:
+    import folium
+    from streamlit_folium import st_folium
+    HAS_FOLIUM = True
+except ImportError:
+    HAS_FOLIUM = False
+
+try:
+    from geopy.geocoders import Nominatim
+    HAS_GEOPY = True
+except ImportError:
+    HAS_GEOPY = False
 
 # 1. Page Configuration & Safe Secret Loader
 st.set_page_config(
@@ -64,6 +74,8 @@ def extract_json(raw_text):
 
 
 def reverse_geocode(lat, lng):
+    if not HAS_GEOPY:
+        return f"{lat:.4f}, {lng:.4f}"
     try:
         geolocator = Nominatim(user_agent="medifind_app")
         location_obj = geolocator.reverse((lat, lng), timeout=5)
@@ -153,17 +165,12 @@ target_path = (
 def load_data(path):
     if not os.path.exists(path):
         if os.path.exists("sample_medicines.csv"):
-            st.warning(
-                "⚠️ Full database is not committed to GitHub (>100MB limit). Defaulting to `sample_medicines.csv`."
-            )
             return pd.read_csv("sample_medicines.csv")
         else:
-            st.error("No dataset CSV found in repository.")
             return pd.DataFrame(columns=["Name", "Contains"])
     try:
         return pd.read_csv(path)
-    except Exception as e:
-        st.error(f"Error loading dataset: {e}")
+    except Exception:
         return pd.DataFrame(columns=["Name", "Contains"])
 
 
@@ -207,47 +214,51 @@ with st.sidebar.expander("📍 Location Selection", expanded=True):
                 location = f"{selected_city}, {selected_state}"
 
     elif loc_mode == "📌 Interactive Map Pin":
-        st.caption("Click anywhere on the map to pin location:")
+        if HAS_FOLIUM:
+            st.caption("Click anywhere on the map to pin location:")
 
-        if "map_lat" not in st.session_state:
-            st.session_state["map_lat"] = 3.1073
-            st.session_state["map_lng"] = 101.6067
+            if "map_lat" not in st.session_state:
+                st.session_state["map_lat"] = 3.1073
+                st.session_state["map_lng"] = 101.6067
 
-        m = folium.Map(
-            location=[st.session_state["map_lat"], st.session_state["map_lng"]],
-            zoom_start=11,
-        )
+            m = folium.Map(
+                location=[st.session_state["map_lat"], st.session_state["map_lng"]],
+                zoom_start=11,
+            )
 
-        folium.Marker(
-            [st.session_state["map_lat"], st.session_state["map_lng"]],
-            popup="Pinned Location",
-            tooltip="Selected Location",
-            icon=folium.Icon(color="red", icon="info-sign"),
-        ).add_to(m)
+            folium.Marker(
+                [st.session_state["map_lat"], st.session_state["map_lng"]],
+                popup="Pinned Location",
+                tooltip="Selected Location",
+                icon=folium.Icon(color="red", icon="info-sign"),
+            ).add_to(m)
 
-        map_out = st_folium(
-            m,
-            height=200,
-            key="sidebar_map",
-            use_container_width=True,
-            returned_objects=["last_clicked"],
-        )
+            map_out = st_folium(
+                m,
+                height=200,
+                key="sidebar_map",
+                use_container_width=True,
+                returned_objects=["last_clicked"],
+            )
 
-        if map_out and map_out.get("last_clicked"):
-            clicked_lat = map_out["last_clicked"]["lat"]
-            clicked_lng = map_out["last_clicked"]["lng"]
+            if map_out and map_out.get("last_clicked"):
+                clicked_lat = map_out["last_clicked"]["lat"]
+                clicked_lng = map_out["last_clicked"]["lng"]
 
-            if (
-                abs(clicked_lat - st.session_state["map_lat"]) > 1e-5
-                or abs(clicked_lng - st.session_state["map_lng"]) > 1e-5
-            ):
-                st.session_state["map_lat"] = clicked_lat
-                st.session_state["map_lng"] = clicked_lng
-                st.rerun()
+                if (
+                    abs(clicked_lat - st.session_state["map_lat"]) > 1e-5
+                    or abs(clicked_lng - st.session_state["map_lng"]) > 1e-5
+                ):
+                    st.session_state["map_lat"] = clicked_lat
+                    st.session_state["map_lng"] = clicked_lng
+                    st.rerun()
 
-        location = reverse_geocode(
-            st.session_state["map_lat"], st.session_state["map_lng"]
-        )
+            location = reverse_geocode(
+                st.session_state["map_lat"], st.session_state["map_lng"]
+            )
+        else:
+            st.caption("Map plugin not detected. Defaulting to text mode.")
+            location = st.text_input("📍 Your Location", value="Petaling Jaya, Selangor", key="map_fallback_loc")
 
     else:
         location = st.text_input("📍 Your Location", value="Petaling Jaya, Selangor")

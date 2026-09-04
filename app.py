@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import pandas as pd
 import streamlit as st
+import folium
+from streamlit_folium import st_folium
+from geopy.geocoders import Nominatim
 
 # 1. Page Configuration & Safe Secret Loader
 st.set_page_config(
@@ -42,6 +45,23 @@ def safe_float(val, default=0.0):
         return float(clean_val)
     except (ValueError, TypeError):
         return default
+
+
+# Helper function to convert lat/lng to readable address
+def reverse_geocode(lat, lng):
+    try:
+        geolocator = Nominatim(user_agent="medifind_app")
+        location_obj = geolocator.reverse((lat, lng), timeout=5)
+        if location_obj:
+            address = location_obj.raw.get("address", {})
+            suburb = address.get("suburb", address.get("town", address.get("city", "")))
+            state = address.get("state", "")
+            if suburb or state:
+                return f"{suburb}, {state}".strip(", ")
+            return location_obj.address.split(",")[0]
+        return f"{lat:.4f}, {lng:.4f}"
+    except Exception:
+        return f"{lat:.4f}, {lng:.4f}"
 
 
 # 2. Sidebar Controls & Safe Dataset Loader
@@ -80,7 +100,35 @@ def load_data(path):
 
 df = load_data(target_path)
 
-location = st.sidebar.text_input("📍 Your Location", value="Petaling Jaya, Selangor")
+# --- Interactive Location Selection ---
+st.sidebar.markdown("### 📍 Location Selection")
+loc_mode = st.sidebar.radio(
+    "Location Selection Mode",
+    ["📌 Interactive Map Pin", "⌨️ Manual Text Input"],
+    index=0,
+)
+
+if loc_mode == "📌 Interactive Map Pin":
+    st.sidebar.caption("Click anywhere on the map to pin your location:")
+    
+    # Default map centered at Petaling Jaya, Selangor (3.1073, 101.6067)
+    default_lat, default_lng = 3.1073, 101.6067
+    
+    m = folium.Map(location=[default_lat, default_lng], zoom_start=11)
+    
+    # Render interactive map component in sidebar
+    map_out = st_folium(m, height=220, key="sidebar_map", use_container_width=True)
+    
+    if map_out and map_out.get("last_clicked"):
+        clicked_lat = map_out["last_clicked"]["lat"]
+        clicked_lng = map_out["last_clicked"]["lng"]
+        location = reverse_geocode(clicked_lat, clicked_lng)
+    else:
+        location = "Petaling Jaya, Selangor"
+    
+    st.sidebar.info(f"**Pinned:** {location}")
+else:
+    location = st.sidebar.text_input("📍 Your Location", value="Petaling Jaya, Selangor")
 
 user_api_key = st.sidebar.text_input(
     "🔑 Gonka API Key",
@@ -115,7 +163,6 @@ def findSubstitutes(searchTerm, top_n=5):
     if clean_query in BRAND_ALIASES:
         clean_query = BRAND_ALIASES[clean_query]
 
-    # regex=False ensures 0ms matching performance across 147k records
     match = df[
         df["Name"].str.contains(clean_query, case=False, na=False, regex=False)
         | df["Contains"].str.contains(clean_query, case=False, na=False, regex=False)
@@ -228,7 +275,6 @@ def runModelB(client, medName, location):
     except Exception as e:
         pass
 
-    # Standard regional fallback if API call or parsing fails
     return {
         "stock_risk": "Low",
         "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
@@ -240,7 +286,6 @@ def runModelB(client, medName, location):
 st.title("💊 MediFind: Medicine Search & Generic Engine")
 st.caption("Powered by Gonka Router Dual-Model AI Orchestration")
 
-# Main Navigation Tabs
 tab_search, tab_library = st.tabs(["🔍 Search & Evaluation", "📚 Medicine Reference Library"])
 
 # ================= TAB 1: SEARCH & EVALUATION =================
@@ -474,11 +519,10 @@ with tab_library:
         )
 
     with lib_col2:
-        st.write("") # Alignment spacing
+        st.write("")
         st.write("")
         st.caption(f"Showing **{len(df):,}** total records in loaded dataset.")
 
-    # Apply live text filter to dataframe
     if lib_filter and len(lib_filter.strip()) > 0:
         clean_lib_q = lib_filter.strip().lower()
         display_df = df[
@@ -488,7 +532,6 @@ with tab_library:
     else:
         display_df = df
 
-    # Display dataset table
     st.dataframe(
         display_df[["Name", "Contains"]].rename(
             columns={"Name": "Brand / Medicine Name", "Contains": "Active Ingredients"}

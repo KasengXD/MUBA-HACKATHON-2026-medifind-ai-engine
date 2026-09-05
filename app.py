@@ -319,7 +319,7 @@ BRAND_ALIASES = {
 
 
 # 4. Core Search & Substitute Engine
-def findSubstitutes(searchTerm, top_n=5):
+def findSubstitutes(searchTerm, top_n=10):
     if df.empty:
         return None
 
@@ -765,6 +765,27 @@ with tab_search:
 
                     st.markdown("### 🧪 Active Ingredients")
                     st.info(f"**{active}**")
+
+                    # ================= GENERIC SUBSTITUTES TABLE =================
+                    st.markdown("### 💊 Available Generic Alternatives")
+                    if subs:
+                        sub_df = pd.DataFrame(
+                            {
+                                "Generic Alternative Name": subs,
+                                "Active Formula": [active] * len(subs),
+                                "Bio-Equivalence": [
+                                    "Identical Active Ingredient"
+                                ]
+                                * len(subs),
+                            }
+                        )
+                        st.dataframe(
+                            sub_df, use_container_width=True, hide_index=True
+                        )
+                    else:
+                        st.caption(
+                            "No direct generic substitutes found in the database for this specific formulation."
+                        )
 
                     col_left, col_right = st.columns(2)
 

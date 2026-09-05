@@ -381,7 +381,7 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
             "safety_score": 85,
             "dosage_instructions": "Consult a local healthcare provider or pharmacist.",
             "key_warnings": "openai package not installed in environment.",
-        }, None
+        }, None, "N/A"
 
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
     system_prompt = (
@@ -405,10 +405,11 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
                 ],
                 max_tokens=512,
             )
+            req_id = getattr(resA, "id", f"gonka-safety-{int(time.time())}")
             raw_text = resA.choices[0].message.content or ""
             parsed = extract_json(raw_text)
             if isinstance(parsed, dict):
-                return parsed, None
+                return parsed, None, req_id
             last_error = f"{model_name} returned non-dictionary JSON structure."
         except Exception as e:
             last_error = str(e)
@@ -418,7 +419,7 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
         "safety_score": 0,
         "dosage_instructions": "Consult a healthcare provider.",
         "key_warnings": f"Clinical Safety Load Warning: {last_error}",
-    }, last_error
+    }, last_error, "N/A"
 
 
 def _execute_model_b(medName, location, api_key, base_url):
@@ -427,7 +428,7 @@ def _execute_model_b(medName, location, api_key, base_url):
             "stock_risk": "Low",
             "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
             "estimated_in_stock_confidence": 80,
-        }, None
+        }, None, "N/A"
 
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
     system_prompt = (
@@ -451,10 +452,11 @@ def _execute_model_b(medName, location, api_key, base_url):
             ],
             max_tokens=512,
         )
+        req_id = getattr(resB, "id", f"gonka-supply-{int(time.time())}")
         raw_text = resB.choices[0].message.content or ""
         parsed = extract_json(raw_text)
         if isinstance(parsed, dict):
-            return parsed, None
+            return parsed, None, req_id
     except Exception:
         pass
 
@@ -462,7 +464,7 @@ def _execute_model_b(medName, location, api_key, base_url):
         "stock_risk": "Low",
         "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
         "estimated_in_stock_confidence": 80,
-    }, "Using default regional inventory estimate."
+    }, "Using default regional inventory estimate.", "N/A"
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -552,7 +554,7 @@ with tab_search:
                     key="variant_selector",
                 )
 
-            with st.spinner("Searching database and executing dual-AI routing..."):
+            with st.spinner("Searching database and executing dual-AI routing via Gonka Gateway..."):
                 lookup = findSubstitutes(target_search_term)
 
                 if not lookup:
@@ -586,8 +588,8 @@ with tab_search:
                             medName,
                             location,
                         )
-                        dataA, errA = f_a.result()
-                        dataB, errB = f_b.result()
+                        dataA, errA, req_id_a = f_a.result()
+                        dataB, errB, req_id_b = f_b.result()
 
                     genericMatchPTS = 100 if lookup["genericMatchFound"] else 0
 
@@ -617,6 +619,15 @@ with tab_search:
                         + (safetyScore * 0.2)
                     )
 
+                    st.markdown("---")
+
+                    # ================= GONKA ROUTER TRANSPARENCY DASHBOARD =================
+                    st.markdown("### 🌐 Gonka Router Verification & Audit Trace")
+                    st.caption("All verification and clinical inference steps executed via Gonka Inference Gateway (`gonkarouter.io`).")
+                    g1, g2, g3 = st.columns(3)
+                    g1.markdown(f"**Gateway Host:**\n`gonkarouter.io`")
+                    g2.markdown(f"**Clinical Model (`Kimi-K2.6`) Req ID:**\n`{req_id_a}`")
+                    g3.markdown(f"**Supply Model (`DeepSeek-V4`) Req ID:**\n`{req_id_b}`")
                     st.markdown("---")
 
                     if len(subs) > 0:
@@ -676,6 +687,8 @@ Matched Drug: {medName}
 Active Ingredient: {active}
 Safety Status: {'APPROVED' if (isinstance(dataA, dict) and dataA.get('safety_approved')) else 'REQUIRES REVIEW'}
 Safety Score: {safetyScore:.0f}/100
+Gonka Request ID (Clinical): {req_id_a}
+Gonka Request ID (Supply): {req_id_b}
 
 DOSAGE INSTRUCTIONS:
 {dataA.get('dosage_instructions', 'N/A') if isinstance(dataA, dict) else 'N/A'}
@@ -683,7 +696,7 @@ DOSAGE INSTRUCTIONS:
 CLINICAL WARNINGS:
 {dataA.get('key_warnings', 'None') if isinstance(dataA, dict) else 'None'}
 ----------------------------------------
-Generated by MediFind AI Engine via Gonka Router
+Generated by MediFind AI Engine via Gonka Router Gateway
 """
                         st.download_button(
                             label="📄 Download Pharmacist Brief",

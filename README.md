@@ -159,3 +159,13 @@ MediFind includes an integrated **Generic Price & Consumer Savings Calculator**:
 Built for the **MUBA Hackathon 2026**. Powered by [Gonka Router](https://gonkarouter.io/) for multi-model AI routing and infrastructure.
 
 ```
+
+🏆 Acknowledgments & Credits
+Hackathon: Built for MUBA Hackathon 2026.
+
+AI Orchestration: Powered by Gonka Router for multi-model AI routing.
+
+AI Development Assistant: Developed with Google Gemini as the primary AI coding assistant for code refactoring, fault-tolerant logic, and UI architecture.
+
+📄 License
+Distributed under the MIT License. See LICENSE for details.

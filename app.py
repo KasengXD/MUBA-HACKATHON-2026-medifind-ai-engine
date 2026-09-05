@@ -9,18 +9,21 @@ import streamlit as st
 # 1. Safe Optional Third-Party Imports
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
 
 try:
     from openai import OpenAI
+
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
 
 try:
-    from rapidfuzz import process, fuzz
+    from rapidfuzz import fuzz, process
+
     HAS_RAPIDFUZZ = True
 except ImportError:
     HAS_RAPIDFUZZ = False
@@ -29,12 +32,14 @@ except ImportError:
 try:
     import folium
     from streamlit_folium import st_folium
+
     HAS_FOLIUM = True
 except ImportError:
     HAS_FOLIUM = False
 
 try:
     from geopy.geocoders import Nominatim
+
     HAS_GEOPY = True
 except ImportError:
     HAS_GEOPY = False
@@ -107,7 +112,9 @@ def reverse_geocode(lat, lng):
         location_obj = geolocator.reverse((lat, lng), timeout=5)
         if location_obj:
             address = location_obj.raw.get("address", {})
-            suburb = address.get("suburb", address.get("town", address.get("city", "")))
+            suburb = address.get(
+                "suburb", address.get("town", address.get("city", ""))
+            )
             state = address.get("state", "")
             if suburb or state:
                 return f"{suburb}, {state}".strip(", ")
@@ -165,20 +172,14 @@ STATE_CITY_MAP = {
 # 3. Sidebar Controls & Safe Dataset Loader
 st.sidebar.title("⚙️ Engine Controls")
 
-with st.sidebar.expander("📊 Database & API Settings", expanded=True):
+with st.sidebar.expander("📊 Database Settings", expanded=True):
     dataset_scale = st.radio(
         "Database Scale Mode",
         ["Sample Database (~10k)", "Full Production Database (~147k)"],
         index=0,
     )
-    user_api_key = st.text_input(
-        "🔑 Gonka API Key",
-        value="",
-        type="password",
-        help="Leave blank to use Streamlit Cloud Secrets",
-    )
 
-active_api_key = user_api_key.strip() if user_api_key.strip() else API_KEY
+active_api_key = API_KEY
 
 target_path = (
     "sample_medicines.csv"
@@ -222,7 +223,9 @@ with st.sidebar.expander("📍 Location Selection", expanded=True):
         if selected_state == "Other / Custom State":
             custom_city = st.text_input("City", value="Petaling Jaya")
             custom_state = st.text_input("State", value="Selangor")
-            location = f"{custom_city.strip()}, {custom_state.strip()}".strip(", ")
+            location = f"{custom_city.strip()}, {custom_state.strip()}".strip(
+                ", "
+            )
         else:
             city_options = STATE_CITY_MAP.get(selected_state, []) + [
                 "Other / Custom City"
@@ -248,7 +251,10 @@ with st.sidebar.expander("📍 Location Selection", expanded=True):
                 st.session_state["map_lng"] = 101.6067
 
             m = folium.Map(
-                location=[st.session_state["map_lat"], st.session_state["map_lng"]],
+                location=[
+                    st.session_state["map_lat"],
+                    st.session_state["map_lng"],
+                ],
                 zoom_start=11,
             )
 
@@ -285,11 +291,19 @@ with st.sidebar.expander("📍 Location Selection", expanded=True):
                 st.session_state["map_lat"], st.session_state["map_lng"]
             )
         else:
-            st.caption("Map plugin not detected. Defaulting to text mode.")
-            location = st.text_input("📍 Your Location", value="Petaling Jaya, Selangor", key="map_fallback_loc")
+            st.caption(
+                "Map plugin not detected. Defaulting to text mode."
+            )
+            location = st.text_input(
+                "📍 Your Location",
+                value="Petaling Jaya, Selangor",
+                key="map_fallback_loc",
+            )
 
     else:
-        location = st.text_input("📍 Your Location", value="Petaling Jaya, Selangor")
+        location = st.text_input(
+            "📍 Your Location", value="Petaling Jaya, Selangor"
+        )
 
 st.sidebar.info(f"**Target Location:** {location}")
 st.sidebar.markdown(f"**Active Records:** `{len(df):,}`")
@@ -317,8 +331,12 @@ def findSubstitutes(searchTerm, top_n=5):
 
     # Standard Substring Match
     match = df[
-        df["Name"].astype(str).str.contains(clean_query, case=False, na=False, regex=False)
-        | df["Contains"].astype(str).str.contains(clean_query, case=False, na=False, regex=False)
+        df["Name"]
+        .astype(str)
+        .str.contains(clean_query, case=False, na=False, regex=False)
+        | df["Contains"]
+        .astype(str)
+        .str.contains(clean_query, case=False, na=False, regex=False)
     ]
 
     # Fuzzy Search Fallback if exact match fails
@@ -333,7 +351,9 @@ def findSubstitutes(searchTerm, top_n=5):
                 clean_query = best_matches[0][0]
                 fuzzy_corrected = True
         elif all_names:
-            closest = difflib.get_close_matches(clean_query, all_names, n=1, cutoff=0.6)
+            closest = difflib.get_close_matches(
+                clean_query, all_names, n=1, cutoff=0.6
+            )
             if closest:
                 clean_query = closest[0]
                 fuzzy_corrected = True
@@ -345,14 +365,22 @@ def findSubstitutes(searchTerm, top_n=5):
         return None
 
     match = match.copy()
-    match["is_injection"] = match["Name"].astype(str).str.contains(
-        "Injection|Infusion|IV", case=False, na=False, regex=False
+    match["is_injection"] = (
+        match["Name"]
+        .astype(str)
+        .str.contains("Injection|Infusion|IV", case=False, na=False, regex=False)
     )
-    match["ingredient_count"] = match["Contains"].astype(str).str.count(r"\+")
-    sorted_matches = match.sort_values(by=["is_injection", "ingredient_count"])
+    match["ingredient_count"] = (
+        match["Contains"].astype(str).str.count(r"\+")
+    )
+    sorted_matches = match.sort_values(
+        by=["is_injection", "ingredient_count"]
+    )
 
     # If exact name match exists for selected item, use it
-    exact_selected = sorted_matches[sorted_matches["Name"].astype(str).str.lower() == raw_query.lower()]
+    exact_selected = sorted_matches[
+        sorted_matches["Name"].astype(str).str.lower() == raw_query.lower()
+    ]
     if not exact_selected.empty:
         target = exact_selected.iloc[0]["Name"]
         active = exact_selected.iloc[0]["Contains"]
@@ -384,7 +412,9 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
                 "key_warnings": "OpenAI package not installed or API key missing.",
             }, None, "N/A"
 
-        client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
+        client = OpenAI(
+            api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2
+        )
         system_prompt = (
             "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
             "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON: "
@@ -406,12 +436,16 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
                     ],
                     max_tokens=512,
                 )
-                req_id = getattr(resA, "id", f"gonka-safety-{int(time.time())}")
+                req_id = getattr(
+                    resA, "id", f"gonka-safety-{int(time.time())}"
+                )
                 raw_text = resA.choices[0].message.content or ""
                 parsed = extract_json(raw_text)
                 if isinstance(parsed, dict):
                     return parsed, None, req_id
-                last_error = f"{model_name} returned non-dictionary JSON structure."
+                last_error = (
+                    f"{model_name} returned non-dictionary JSON structure."
+                )
             except Exception as e:
                 last_error = str(e)
 
@@ -435,11 +469,18 @@ def _execute_model_b(medName, location, api_key, base_url):
         if not HAS_OPENAI or not api_key:
             return {
                 "stock_risk": "Low",
-                "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
+                "nearest_chain_availability": [
+                    "Watsons",
+                    "Guardian",
+                    "Caring Pharmacy",
+                    "BIG Pharmacy",
+                ],
                 "estimated_in_stock_confidence": 80,
             }, None, "N/A"
 
-        client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
+        client = OpenAI(
+            api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2
+        )
         system_prompt = (
             f"You are a retail pharmaceutical market inventory estimation engine. "
             f"Assess market supply risk and typical stock availability for {medName} in {location}. "
@@ -450,7 +491,9 @@ def _execute_model_b(medName, location, api_key, base_url):
         )
         user_prompt = f"Provide retail supply probability and stocking chains for {medName} around {location}."
 
-        model_name = get_secret("MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731")
+        model_name = get_secret(
+            "MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731"
+        )
 
         try:
             resB = client.chat.completions.create(
@@ -471,13 +514,23 @@ def _execute_model_b(medName, location, api_key, base_url):
 
         return {
             "stock_risk": "Low",
-            "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
+            "nearest_chain_availability": [
+                "Watsons",
+                "Guardian",
+                "Caring Pharmacy",
+                "BIG Pharmacy",
+            ],
             "estimated_in_stock_confidence": 80,
         }, "Using default regional inventory estimate.", "N/A"
     except Exception as top_e:
         return {
             "stock_risk": "Low",
-            "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
+            "nearest_chain_availability": [
+                "Watsons",
+                "Guardian",
+                "Caring Pharmacy",
+                "BIG Pharmacy",
+            ],
             "estimated_in_stock_confidence": 80,
         }, str(top_e), "N/A"
 
@@ -497,9 +550,13 @@ st.title("💊 MediFind: Medicine Search & Generic Engine")
 st.caption("Powered by Gonka Router Dual-Model AI Orchestration")
 
 if not HAS_OPENAI:
-    st.warning("⚠️ `openai` python library is not detected in your environment. Running in offline UI demo mode.")
+    st.warning(
+        "⚠️ `openai` python library is not detected in your environment. Running in offline UI demo mode."
+    )
 
-tab_search, tab_library = st.tabs(["🔍 Search & Evaluation", "📚 Medicine Reference Library"])
+tab_search, tab_library = st.tabs(
+    ["🔍 Search & Evaluation", "📚 Medicine Reference Library"]
+)
 
 # ================= TAB 1: SEARCH & EVALUATION =================
 with tab_search:
@@ -541,7 +598,13 @@ with tab_search:
 
         st.markdown("#### ⚡ Popular Searches")
         p_cols = st.columns(5)
-        sample_tags = ["Paracetamol", "Augmentin", "Metformin", "Atorvastatin", "Ibuprofen"]
+        sample_tags = [
+            "Paracetamol",
+            "Augmentin",
+            "Metformin",
+            "Atorvastatin",
+            "Ibuprofen",
+        ]
         for idx, tag in enumerate(sample_tags):
             p_cols[idx].info(f"💊 **{tag}**")
 
@@ -549,26 +612,40 @@ with tab_search:
         clean_q = query.strip()
 
         if len(clean_q) < 3 and search_mode == "⌨️ Free Text Search":
-            st.warning("⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox').")
+            st.warning(
+                "⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox')."
+            )
         else:
             if not active_api_key and HAS_OPENAI:
-                st.warning("ℹ️ No Gonka API Key provided. Running in offline fallback evaluation mode.")
+                st.warning(
+                    "ℹ️ No Gonka API Key provided. Running in offline fallback evaluation mode."
+                )
 
             # Check for multiple product strength variants in database
-            matching_variants = df[
-                df["Name"].astype(str).str.contains(clean_q, case=False, na=False, regex=False)
-            ]["Name"].unique().tolist()
+            matching_variants = (
+                df[
+                    df["Name"]
+                    .astype(str)
+                    .str.contains(clean_q, case=False, na=False, regex=False)
+                ]["Name"]
+                .unique()
+                .tolist()
+            )
 
             target_search_term = clean_q
             if len(matching_variants) > 1:
-                st.info(f"📦 Found **{len(matching_variants)}** matching variants for **'{clean_q}'**.")
+                st.info(
+                    f"📦 Found **{len(matching_variants)}** matching variants for **'{clean_q}'**."
+                )
                 target_search_term = st.selectbox(
                     "Select specific product variant to evaluate:",
                     options=matching_variants,
                     key="variant_selector",
                 )
 
-            with st.spinner("Searching database and executing dual-AI routing via Gonka Gateway..."):
+            with st.spinner(
+                "Searching database and executing dual-AI routing via Gonka Gateway..."
+            ):
                 lookup = findSubstitutes(target_search_term)
 
                 if not lookup:
@@ -602,7 +679,7 @@ with tab_search:
                             medName,
                             location,
                         )
-                        
+
                         try:
                             dataA, errA, req_id_a = f_a.result()
                         except Exception as ex_a:
@@ -618,7 +695,11 @@ with tab_search:
                         except Exception as ex_b:
                             dataB, errB, req_id_b = {
                                 "stock_risk": "Low",
-                                "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy"],
+                                "nearest_chain_availability": [
+                                    "Watsons",
+                                    "Guardian",
+                                    "Caring Pharmacy",
+                                ],
                                 "estimated_in_stock_confidence": 80,
                             }, str(ex_b), "N/A"
 
@@ -676,13 +757,17 @@ with tab_search:
                     col_left, col_right = st.columns(2)
 
                     with col_left:
-                        st.subheader("🛡️ Clinical Safety Evaluation (Kimi-K2.6)")
+                        st.subheader(
+                            "🛡️ Clinical Safety Evaluation (Kimi-K2.6)"
+                        )
                         if (
                             dataA.get("safety_approved")
                             if isinstance(dataA, dict)
                             else False
                         ):
-                            st.success("✅ **Safety Status:** Approved Bio-Equivalent")
+                            st.success(
+                                "✅ **Safety Status:** Approved Bio-Equivalent"
+                            )
                         else:
                             st.warning(
                                 "⚠️ **Safety Status:** Requires Pharmacist Review"
@@ -743,9 +828,13 @@ Generated by MediFind AI Engine via Gonka Router Gateway
                             for chain in chains:
                                 st.markdown(f"- 🏢 {chain}")
                         else:
-                            st.write("No specific retail chain data reported.")
+                            st.write(
+                                "No specific retail chain data reported."
+                            )
 
-                        progress_val = max(0.0, min(100.0, stockScore)) / 100.0
+                        progress_val = (
+                            max(0.0, min(100.0, stockScore)) / 100.0
+                        )
                         st.progress(
                             progress_val,
                             text=f"Estimated Stock Availability: {stockScore:.0f}%",
@@ -753,7 +842,9 @@ Generated by MediFind AI Engine via Gonka Router Gateway
 
                     # ================= COST SAVINGS CALCULATOR (RM) =================
                     st.markdown("---")
-                    st.subheader("💡 Estimated Generic Cost Savings Calculator (RM)")
+                    st.subheader(
+                        "💡 Estimated Generic Cost Savings Calculator (RM)"
+                    )
                     st.caption(
                         f"Enter the estimated branded cost for **{medName}** to automatically calculate estimated generic savings."
                     )
@@ -768,28 +859,46 @@ Generated by MediFind AI Engine via Gonka Router Gateway
 
                     # Auto-calculate generic cost using standard generic market discount (65% average savings)
                     generic_discount_rate = 0.65
-                    generic_price = round(brand_price * (1.0 - generic_discount_rate), 2)
+                    generic_price = round(
+                        brand_price * (1.0 - generic_discount_rate), 2
+                    )
                     monthly_saving = max(0.0, brand_price - generic_price)
                     annual_saving = monthly_saving * 12
-                    savings_pct = (monthly_saving / brand_price * 100) if brand_price > 0 else 0.0
+                    savings_pct = (
+                        (monthly_saving / brand_price * 100)
+                        if brand_price > 0
+                        else 0.0
+                    )
 
                     s1, s2, s3 = st.columns(3)
-                    s1.metric("Est. Generic Monthly Cost", f"RM {generic_price:.2f}")
+                    s1.metric(
+                        "Est. Generic Monthly Cost", f"RM {generic_price:.2f}"
+                    )
                     s2.metric("Monthly Savings", f"RM {monthly_saving:.2f}")
                     s3.metric(
                         "Annual Consumer Savings",
                         f"RM {annual_saving:.2f}",
-                        delta=f"-{savings_pct:.1f}% Savings" if savings_pct > 0 else None,
+                        delta=(
+                            f"-{savings_pct:.1f}% Savings"
+                            if savings_pct > 0
+                            else None
+                        ),
                     )
 
                     # ================= GONKA ROUTER TRANSPARENCY DASHBOARD =================
                     st.markdown("---")
                     st.markdown("### 🌐 Gonka Router Verification & Audit Trace")
-                    st.caption("All verification and clinical inference steps executed via Gonka Inference Gateway (`gonkarouter.io`).")
+                    st.caption(
+                        "All verification and clinical inference steps executed via Gonka Inference Gateway (`gonkarouter.io`)."
+                    )
                     g1, g2, g3 = st.columns(3)
                     g1.markdown(f"**Gateway Host:**\n`gonkarouter.io`")
-                    g2.markdown(f"**Clinical Model (`Kimi-K2.6`) Req ID:**\n`{req_id_a}`")
-                    g3.markdown(f"**Supply Model (`DeepSeek-V4`) Req ID:**\n`{req_id_b}`")
+                    g2.markdown(
+                        f"**Clinical Model (`Kimi-K2.6`) Req ID:**\n`{req_id_a}`"
+                    )
+                    g3.markdown(
+                        f"**Supply Model (`DeepSeek-V4`) Req ID:**\n`{req_id_b}`"
+                    )
 
 # ================= TAB 2: MEDICINE REFERENCE LIBRARY =================
 with tab_library:
@@ -813,17 +922,22 @@ with tab_library:
     if lib_filter and len(lib_filter.strip()) > 0:
         clean_lib_q = lib_filter.strip().lower()
         display_df = df[
-            df["Name"].astype(str).str.contains(clean_lib_q, case=False, na=False, regex=False)
-            | df["Contains"].astype(str).str.contains(
-                clean_lib_q, case=False, na=False, regex=False
-            )
+            df["Name"]
+            .astype(str)
+            .str.contains(clean_lib_q, case=False, na=False, regex=False)
+            | df["Contains"]
+            .astype(str)
+            .str.contains(clean_lib_q, case=False, na=False, regex=False)
         ]
     else:
         display_df = df
 
     st.dataframe(
         display_df[["Name", "Contains"]].rename(
-            columns={"Name": "Brand / Medicine Name", "Contains": "Active Ingredients"}
+            columns={
+                "Name": "Brand / Medicine Name",
+                "Contains": "Active Ingredients",
+            }
         ),
         use_container_width=True,
         height=500,

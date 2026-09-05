@@ -1,10 +1,4 @@
-```markdown
 # 💊 MUBA-HACKATHON-2026-medifind-ai-engine
-
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://muba-hackathon-2026-medifind-ai-engine-hykaugcpmym622wcraxvqj.streamlit.app/)
-![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Hackathon](https://img.shields.io/badge/MUBA--Hackathon-2026-brightgreen)
 
 **[🟢 LIVE DEMO: Test the MediFind AI Engine Here](https://muba-hackathon-2026-medifind-ai-engine-hykaugcpmym622wcraxvqj.streamlit.app/)**
 
@@ -92,7 +86,7 @@ This project indexes up to 147,852 pharmaceutical records:
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/your-username/MUBA-HACKATHON-2026-medifind-ai-engine.git](https://github.com/your-username/MUBA-HACKATHON-2026-medifind-ai-engine.git)
+git clone https://github.com/your-username/MUBA-HACKATHON-2026-medifind-ai-engine.git
 cd MUBA-HACKATHON-2026-medifind-ai-engine
 
 ```
@@ -112,7 +106,7 @@ Create a `.env` file in the project root directory:
 
 ```env
 GONKA_API_KEY=your_gonka_api_key_here
-GONKA_BASE_URL=[https://api.gonkarouter.io/v1](https://api.gonkarouter.io/v1)
+GONKA_BASE_URL=https://api.gonkarouter.io/v1
 MODEL_SAFETY=moonshotai/Kimi-K2.6
 MODEL_SUPPLY=deepseek-ai/DeepSeek-V4-Flash-0731
 DATASET_PATH=cleaned_medicines_final.csv.gz
@@ -156,7 +150,3 @@ streamlit run app.py
 ## 📄 License
 
 Distributed under the **MIT License**. See `LICENSE` for details.
-
-```
-
-```

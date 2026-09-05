@@ -154,6 +154,15 @@ MediFind includes an integrated **Generic Price & Consumer Savings Calculator**:
 - [ ] **Real-Time Pharmacy API Sync:** Direct inventory integrations with retail pharmacy APIs for exact store stock counts.
 - [ ] **Multi-Language Support:** Localized clinical safety briefs in Bahasa Malaysia, Mandarin, and English.
 
+## ⚠️ Project Limitations
+
+* **Non-Real-Time Inventory Data:** Retail stock availability and store mapping are generated using AI estimation models (DeepSeek-V4) based on regional distribution patterns. The app does not connect to live pharmacy POS or real-time warehouse inventory APIs.
+* **Medical Disclaimer:** Clinical safety evaluations, bio-equivalence scores, and dosage guidance (Kimi-K2.6) are provided strictly for educational and informational purposes. They do not replace professional diagnosis, medical advice, or official consultation with a licensed pharmacist or physician.
+* **Memory & Resource Caps:** When hosted on Streamlit Community Cloud, the application is constrained by a strict 1 GB RAM limit. Processing heavy concurrent queries or loading the full production dataset (~147k records) can cause container memory exhaustion (`Resource Limit Exceeded`).
+* **Static Database Index:** Drug lookups rely on static offline datasets (`sample_medicines.csv` and `cleaned_medicines_final.csv.gz`). Drug listings, brand names, and active ingredients do not automatically synchronize with live regulatory databases (such as NPRA or FDA).
+* **API Gateway Dependency:** Dual-model inference requires an active network connection and a valid `GONKA_API_KEY` targeting `api.gonkarouter.io`. If the gateway is unreachable or the key is omitted, the application falls back to offline UI demo mode.
+* **Geocoding Rate Limits & Regional Scope:** Location reverse-geocoding relies on Nominatim (OpenStreetMap), which enforces a strict 1 request/second rate limit. Preset location options, state mappings, and currency calculations (MYR) are primarily configured for Malaysian geographies.
+
 ## 🏆 Acknowledgments
 
 Built for the **MUBA Hackathon 2026**. Powered by [Gonka Router](https://gonkarouter.io/) for multi-model AI routing and infrastructure.

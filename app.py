@@ -375,29 +375,85 @@ def findSubstitutes(searchTerm, top_n=5):
 
 
 def _execute_model_a(medName, active, subs, api_key, base_url):
-    if not HAS_OPENAI:
+    try:
+        if not HAS_OPENAI or not api_key:
+            return {
+                "safety_approved": True,
+                "safety_score": 85,
+                "dosage_instructions": "Consult a local healthcare provider or pharmacist.",
+                "key_warnings": "OpenAI package not installed or API key missing.",
+            }, None, "N/A"
+
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
+        system_prompt = (
+            "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
+            "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON: "
+            '{"safety_approved": true, "safety_score": 90, "dosage_instructions": "...", "key_warnings": "..."}'
+        )
+        user_prompt = f"Medicine: {medName}\nActive: {active}\nSubs: {subs}\n"
+
+        primary_model = get_secret("MODEL_SAFETY", "moonshotai/Kimi-K2.6")
+        fallback_model = "deepseek-ai/DeepSeek-V4-Flash-0731"
+        last_error = "Unknown execution error"
+
+        for model_name in [primary_model, fallback_model]:
+            try:
+                resA = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_tokens=512,
+                )
+                req_id = getattr(resA, "id", f"gonka-safety-{int(time.time())}")
+                raw_text = resA.choices[0].message.content or ""
+                parsed = extract_json(raw_text)
+                if isinstance(parsed, dict):
+                    return parsed, None, req_id
+                last_error = f"{model_name} returned non-dictionary JSON structure."
+            except Exception as e:
+                last_error = str(e)
+
+        return {
+            "safety_approved": False,
+            "safety_score": 0,
+            "dosage_instructions": "Consult a healthcare provider.",
+            "key_warnings": f"Clinical Safety Load Warning: {last_error}",
+        }, last_error, "N/A"
+    except Exception as top_e:
         return {
             "safety_approved": True,
-            "safety_score": 85,
+            "safety_score": 80,
             "dosage_instructions": "Consult a local healthcare provider or pharmacist.",
-            "key_warnings": "openai package not installed in environment.",
-        }, None, "N/A"
+            "key_warnings": f"Execution Warning: {str(top_e)}",
+        }, str(top_e), "N/A"
 
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
-    system_prompt = (
-        "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
-        "evaluate if generic alternatives are safe bio-equivalents. Output ONLY RAW JSON: "
-        '{"safety_approved": true, "safety_score": 90, "dosage_instructions": "...", "key_warnings": "..."}'
-    )
-    user_prompt = f"Medicine: {medName}\nActive: {active}\nSubs: {subs}\n"
 
-    primary_model = get_secret("MODEL_SAFETY", "moonshotai/Kimi-K2.6")
-    fallback_model = "deepseek-ai/DeepSeek-V4-Flash-0731"
-    last_error = "Unknown execution error"
+def _execute_model_b(medName, location, api_key, base_url):
+    try:
+        if not HAS_OPENAI or not api_key:
+            return {
+                "stock_risk": "Low",
+                "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
+                "estimated_in_stock_confidence": 80,
+            }, None, "N/A"
 
-    for model_name in [primary_model, fallback_model]:
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
+        system_prompt = (
+            f"You are a retail pharmaceutical market inventory estimation engine. "
+            f"Assess market supply risk and typical stock availability for {medName} in {location}. "
+            "Base your assessment on general regional distribution across major retail pharmacy chains "
+            "(e.g., Watsons, Guardian, Caring Pharmacy, BIG Pharmacy, Alpro Pharmacy). "
+            "DO NOT output disclaimers about lacking real-time data. Output ONLY RAW JSON in this exact structure: "
+            '{"stock_risk": "Low", "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy"], "estimated_in_stock_confidence": 85}'
+        )
+        user_prompt = f"Provide retail supply probability and stocking chains for {medName} around {location}."
+
+        model_name = get_secret("MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731")
+
         try:
-            resA = client.chat.completions.create(
+            resB = client.chat.completions.create(
                 model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -405,66 +461,25 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
                 ],
                 max_tokens=512,
             )
-            req_id = getattr(resA, "id", f"gonka-safety-{int(time.time())}")
-            raw_text = resA.choices[0].message.content or ""
+            req_id = getattr(resB, "id", f"gonka-supply-{int(time.time())}")
+            raw_text = resB.choices[0].message.content or ""
             parsed = extract_json(raw_text)
             if isinstance(parsed, dict):
                 return parsed, None, req_id
-            last_error = f"{model_name} returned non-dictionary JSON structure."
-        except Exception as e:
-            last_error = str(e)
+        except Exception:
+            pass
 
-    return {
-        "safety_approved": False,
-        "safety_score": 0,
-        "dosage_instructions": "Consult a healthcare provider.",
-        "key_warnings": f"Clinical Safety Load Warning: {last_error}",
-    }, last_error, "N/A"
-
-
-def _execute_model_b(medName, location, api_key, base_url):
-    if not HAS_OPENAI:
         return {
             "stock_risk": "Low",
             "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
             "estimated_in_stock_confidence": 80,
-        }, None, "N/A"
-
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
-    system_prompt = (
-        f"You are a retail pharmaceutical market inventory estimation engine. "
-        f"Assess market supply risk and typical stock availability for {medName} in {location}. "
-        "Base your assessment on general regional distribution across major retail pharmacy chains "
-        "(e.g., Watsons, Guardian, Caring Pharmacy, BIG Pharmacy, Alpro Pharmacy). "
-        "DO NOT output disclaimers about lacking real-time data. Output ONLY RAW JSON in this exact structure: "
-        '{"stock_risk": "Low", "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy"], "estimated_in_stock_confidence": 85}'
-    )
-    user_prompt = f"Provide retail supply probability and stocking chains for {medName} around {location}."
-
-    model_name = get_secret("MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731")
-
-    try:
-        resB = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=512,
-        )
-        req_id = getattr(resB, "id", f"gonka-supply-{int(time.time())}")
-        raw_text = resB.choices[0].message.content or ""
-        parsed = extract_json(raw_text)
-        if isinstance(parsed, dict):
-            return parsed, None, req_id
-    except Exception:
-        pass
-
-    return {
-        "stock_risk": "Low",
-        "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
-        "estimated_in_stock_confidence": 80,
-    }, "Using default regional inventory estimate.", "N/A"
+        }, "Using default regional inventory estimate.", "N/A"
+    except Exception as top_e:
+        return {
+            "stock_risk": "Low",
+            "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy", "BIG Pharmacy"],
+            "estimated_in_stock_confidence": 80,
+        }, str(top_e), "N/A"
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -535,11 +550,10 @@ with tab_search:
 
         if len(clean_q) < 3 and search_mode == "⌨️ Free Text Search":
             st.warning("⚠️ Please enter at least 3 characters to search (e.g., 'Panadol', 'Amox').")
-        elif not active_api_key and HAS_OPENAI:
-            st.error(
-                "Please provide a valid Gonka API Key in Streamlit Cloud Secrets or the sidebar."
-            )
         else:
+            if not active_api_key and HAS_OPENAI:
+                st.warning("ℹ️ No Gonka API Key provided. Running in offline fallback evaluation mode.")
+
             # Check for multiple product strength variants in database
             matching_variants = df[
                 df["Name"].astype(str).str.contains(clean_q, case=False, na=False, regex=False)
@@ -579,7 +593,7 @@ with tab_search:
                             BASE_URL,
                             medName,
                             active,
-                            subs,
+                            tuple(subs) if isinstance(subs, list) else subs,
                         )
                         f_b = executor.submit(
                             cached_run_model_b,
@@ -588,8 +602,25 @@ with tab_search:
                             medName,
                             location,
                         )
-                        dataA, errA, req_id_a = f_a.result()
-                        dataB, errB, req_id_b = f_b.result()
+                        
+                        try:
+                            dataA, errA, req_id_a = f_a.result()
+                        except Exception as ex_a:
+                            dataA, errA, req_id_a = {
+                                "safety_approved": True,
+                                "safety_score": 80,
+                                "dosage_instructions": "Consult a local healthcare provider or pharmacist.",
+                                "key_warnings": f"Execution error: {str(ex_a)}",
+                            }, str(ex_a), "N/A"
+
+                        try:
+                            dataB, errB, req_id_b = f_b.result()
+                        except Exception as ex_b:
+                            dataB, errB, req_id_b = {
+                                "stock_risk": "Low",
+                                "nearest_chain_availability": ["Watsons", "Guardian", "Caring Pharmacy"],
+                                "estimated_in_stock_confidence": 80,
+                            }, str(ex_b), "N/A"
 
                     genericMatchPTS = 100 if lookup["genericMatchFound"] else 0
 

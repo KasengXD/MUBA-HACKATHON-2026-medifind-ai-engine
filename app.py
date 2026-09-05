@@ -413,7 +413,7 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
             }, None, "N/A"
 
         client = OpenAI(
-            api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2
+            api_key=api_key, base_url=base_url, timeout=45.0, max_retries=1
         )
         system_prompt = (
             "You are an expert AI clinical pharmacist. Given a queried medicine and its active ingredients, "
@@ -427,27 +427,32 @@ def _execute_model_a(medName, active, subs, api_key, base_url):
         last_error = "Unknown execution error"
 
         for model_name in [primary_model, fallback_model]:
-            try:
-                resA = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    max_tokens=512,
-                )
-                req_id = getattr(
-                    resA, "id", f"gonka-safety-{int(time.time())}"
-                )
-                raw_text = resA.choices[0].message.content or ""
-                parsed = extract_json(raw_text)
-                if isinstance(parsed, dict):
-                    return parsed, None, req_id
-                last_error = (
-                    f"{model_name} returned non-dictionary JSON structure."
-                )
-            except Exception as e:
-                last_error = str(e)
+            for attempt in range(3):  # Backoff retry loop for 429 errors
+                try:
+                    resA = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        max_tokens=512,
+                    )
+                    req_id = getattr(
+                        resA, "id", f"gonka-safety-{int(time.time())}"
+                    )
+                    raw_text = resA.choices[0].message.content or ""
+                    parsed = extract_json(raw_text)
+                    if isinstance(parsed, dict):
+                        return parsed, None, req_id
+                    last_error = (
+                        f"{model_name} returned non-dictionary JSON structure."
+                    )
+                except Exception as e:
+                    last_error = str(e)
+                    if "429" in last_error or "rate_limited" in last_error:
+                        time.sleep(1.5 * (attempt + 1))
+                    else:
+                        break
 
         return {
             "safety_approved": False,
@@ -479,7 +484,7 @@ def _execute_model_b(medName, location, api_key, base_url):
             }, None, "N/A"
 
         client = OpenAI(
-            api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2
+            api_key=api_key, base_url=base_url, timeout=45.0, max_retries=1
         )
         system_prompt = (
             f"You are a retail pharmaceutical market inventory estimation engine. "
@@ -494,23 +499,29 @@ def _execute_model_b(medName, location, api_key, base_url):
         model_name = get_secret(
             "MODEL_SUPPLY", "deepseek-ai/DeepSeek-V4-Flash-0731"
         )
+        last_error = "Unknown execution error"
 
-        try:
-            resB = client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=512,
-            )
-            req_id = getattr(resB, "id", f"gonka-supply-{int(time.time())}")
-            raw_text = resB.choices[0].message.content or ""
-            parsed = extract_json(raw_text)
-            if isinstance(parsed, dict):
-                return parsed, None, req_id
-        except Exception:
-            pass
+        for attempt in range(3):  # Backoff retry loop for 429 errors
+            try:
+                resB = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_tokens=512,
+                )
+                req_id = getattr(resB, "id", f"gonka-supply-{int(time.time())}")
+                raw_text = resB.choices[0].message.content or ""
+                parsed = extract_json(raw_text)
+                if isinstance(parsed, dict):
+                    return parsed, None, req_id
+            except Exception as e:
+                last_error = str(e)
+                if "429" in last_error or "rate_limited" in last_error:
+                    time.sleep(1.5 * (attempt + 1))
+                else:
+                    break
 
         return {
             "stock_risk": "Low",
@@ -521,7 +532,7 @@ def _execute_model_b(medName, location, api_key, base_url):
                 "BIG Pharmacy",
             ],
             "estimated_in_stock_confidence": 80,
-        }, "Using default regional inventory estimate.", "N/A"
+        }, f"Default regional inventory estimate used: {last_error}", "N/A"
     except Exception as top_e:
         return {
             "stock_risk": "Low",
@@ -662,7 +673,7 @@ with tab_search:
                             f"🔍 Showing results for autocorrected query: **'{medName}'** (Original: *'{lookup['originalQuery']}'*)"
                         )
 
-                    # Parallel Cached Model Calls
+                    # Parallel Cached Model Calls (With Staggering)
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         f_a = executor.submit(
                             cached_run_model_a,
@@ -672,6 +683,7 @@ with tab_search:
                             active,
                             tuple(subs) if isinstance(subs, list) else subs,
                         )
+                        time.sleep(0.3)  # Stagger thread submission to prevent rate-limit bursts
                         f_b = executor.submit(
                             cached_run_model_b,
                             active_api_key,

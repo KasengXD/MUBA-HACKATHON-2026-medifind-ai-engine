@@ -1,5 +1,3 @@
----
-
 ```markdown
 # 💊 MUBA-HACKATHON-2026-medifind-ai-engine
 
@@ -18,43 +16,37 @@
 
 MediFind executes non-blocking, parallel LLM requests through **Gonka Router** using strict JSON enforcement, exponential backoff retries, and rate-limit staggering:
 
-
-```
-
-```
-                      ┌───────────────────────────┐
-                      │  User Query / Location    │
-                      └─────────────┬─────────────┘
-                                    │
-                     ┌──────────────┴──────────────┐
-                     │   RapidFuzz & Pandas Index  │
-                     └──────────────┬──────────────┘
-                                    │
-            ┌───────────────────────┴───────────────────────┐
-            │ ThreadPoolExecutor Concurrent Async Routing   │
-            └──────────────┬─────────────────┬──────────────┘
-                           │                 │
- (Clinical Safety)         │                 │         (Supply Chain)
-
-```
-
+```text
+                          ┌───────────────────────────┐
+                          │   User Query / Location   │
+                          └─────────────┬─────────────┘
+                                        │
+                         ┌──────────────┴──────────────┐
+                         │   RapidFuzz & Pandas Index  │
+                         └──────────────┬──────────────┘
+                                        │
+                ┌───────────────────────┴───────────────────────┐
+                │ ThreadPoolExecutor Concurrent Async Routing   │
+                └──────────────┬─────────────────┬──────────────┘
+                               │                 │
+     (Clinical Safety)         │                 │         (Supply Chain)
 ┌──────────────────────────────▼───┐         ┌───▼─────────────────────────────┐
 │ Gonka Gateway: Kimi-K2.6         │         │ Gonka Gateway: DeepSeek-V4      │
 │ - Bio-Equivalence Approval       │         │ - Local Stock Confidence        │
 │ - Dosage & Contraindications     │         │ - Nearby Retail Chain Mapping   │
 └──────────────────────────────┬───┘         └───┬─────────────────────────────┘
-│                 │
-└────────┬────────┘
-│
-┌─────────────▼─────────────┐
-│   Unified Consensus Score │
-│   & UI Safety Brief Export│
-└───────────────────────────┘
+                               │                 │
+                               └────────┬────────┘
+                                        │
+                          ┌─────────────▼─────────────┐
+                          │   Unified Consensus Score │
+                          │   & UI Safety Brief Export│
+                          └───────────────────────────┘
 
 ```
 
 | Engine Component | Target Model | Gateway Endpoint | Key Task / Output |
-| :--- | :--- | :--- | :--- |
+| --- | --- | --- | --- |
 | **Clinical Safety Engine** | `moonshotai/Kimi-K2.6` | `api.gonkarouter.io/v1` | Bio-equivalence verification, safety score (0-100), clinical contraindications, dosage guidance |
 | **Supply Chain Engine** | `deepseek-ai/DeepSeek-V4-Flash-0731` | `api.gonkarouter.io/v1` | Regional stock availability confidence, retail chain mapping (*Watsons, Guardian, Caring, BIG Pharmacy*), supply risk scoring |
 
@@ -98,6 +90,7 @@ This project indexes up to 147,852 pharmaceutical records:
 ## 🚀 Quick Start & Local Development
 
 ### 1. Clone the Repository
+
 ```bash
 git clone [https://github.com/your-username/MUBA-HACKATHON-2026-medifind-ai-engine.git](https://github.com/your-username/MUBA-HACKATHON-2026-medifind-ai-engine.git)
 cd MUBA-HACKATHON-2026-medifind-ai-engine
@@ -122,6 +115,7 @@ GONKA_API_KEY=your_gonka_api_key_here
 GONKA_BASE_URL=[https://api.gonkarouter.io/v1](https://api.gonkarouter.io/v1)
 MODEL_SAFETY=moonshotai/Kimi-K2.6
 MODEL_SUPPLY=deepseek-ai/DeepSeek-V4-Flash-0731
+DATASET_PATH=cleaned_medicines_final.csv.gz
 
 ```
 
